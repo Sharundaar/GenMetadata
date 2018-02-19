@@ -1,0 +1,11 @@
+[package]
+name = "gen-metadata"
+version = "0.1.0"
+authors = ["Donatien Rabiller <rabiller.donatien@hotmail.fr>"]
+
+[dependencies]
+argparse = "*"
+clang = "0.17.0"
+
+[features]
+default = ["clang/clang_5_0"]
