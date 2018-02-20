@@ -5,6 +5,7 @@ use std::fs::read_dir;
 // use std::time::{Duration, Instant};
 use argparse::{ArgumentParser, StoreTrue, StoreOption, List};
 use clang::*;
+use std::collections::HashMap;
 
 struct Options {
     verbose: bool,
@@ -12,18 +13,60 @@ struct Options {
     output_file: Option<String>,
 }
 
-struct TypeField {
+struct TypeField<'a> {
     name: String,
-    type_name: String,
+    type_name: &<'a> TypeInfo,
 }
 
-struct TypeInfo {
+struct TypeInfo<'a> {
     name: String,
-    parent: Option<String>,
+    parent: Option<&<'a>TypeInfo>,
     fields: Vec<TypeField>,
+    is_complete: bool,
 }
 
+fn make_type_info( name: &str ) -> TypeInfo {
+    return TypeInfo{ name: name.to_string(), parent: None, fields: vec!(), is_complete: true };
+}
 
+fn from_entity( &entity: Entity, mut& type_info_map: HashMap<String, TypeInfo> ) -> Result<&TypeInfo> {
+    if let Some(name) = entity.get_name() {
+        if let Some(type) = entity.get_type() {
+            let mut type_info = TypeInfo {
+                name: type.get_display_name().clone(),
+                parent = None,
+                fields: vec!(),
+                is_complete: false,
+            }
+
+            let type_info = type_info;
+
+            type_info_map.insert( type_info.name.clone(), type_info );
+            return Ok(&type_info_map.get( name ));
+        }
+    }
+
+    return Err( "Couldn't generate a TypeInfo from this entity." );
+}
+
+fn get_built_in_types() -> Vec<TypeInfo> {
+    let built_ins: Vec<TypeInfo> = vec!(
+        make_type_info( "int" ),
+        make_type_info( "float" ),
+        make_type_info( "double" ),
+        make_type_info( "i8" ),
+        make_type_info( "i16" ),
+        make_type_info( "i32" ),
+        make_type_info( "i64" ),
+        make_type_info( "u8" ),
+        make_type_info( "u16" ),
+        make_type_info( "u32" ),
+        make_type_info( "u64" ),
+        make_type_info( "f32" ),
+        make_type_info( "f64" ),
+    );
+    return built_ins;
+}
 
 fn main() {
     let mut options : Options = Options{
@@ -58,7 +101,11 @@ fn main() {
                         .filter(|x| x.ends_with( ".h" ))
                         .collect();
 
-    let mut parsed_types: Vec<TypeInfo> = vec!();
+    let mut type_infos_map: HashMap<String, TypeInfo> = HashMap::new();
+    for built_in in get_built_in_types() {
+        type_infos_map.insert( built_in.name, built_in );
+    }
+
     let clang = Clang::new().unwrap();
     let index = Index::new(&clang, false, true);
 
@@ -71,25 +118,16 @@ fn main() {
                                   "-I..\\Externals\\SDL2-2.0.5\\include\\",
                                   "-I..\\Externals\\GLAD\\include\\"] )
                     .parse().unwrap();
-        // Get the structs in this translation unit
-        let structs = tu.get_entity().get_children().into_iter().filter(|e| {
-            e.get_kind() == EntityKind::StructDecl
-        }).collect::<Vec<_>>();
+        
+        let structs = tu.get_entity().get_children().into_iter().filter(|e| { e.get_kind() == EntityKind::StructDecl }).collect::<Vec<_>>();
 
-        // Print information about the structs
         for struct_ in structs {
-            if !struct_.is_in_main_file() {continue};
-            if !struct_.is_definition()  {continue};
+            if !(struct_.is_in_main_file() && struct_.is_definition()) {continue};
 
+            from_entity( &struct_, mut& type_infos_map );
+/*
             if let Some( name ) = struct_.get_name() {
-                let mut type_info = TypeInfo { name: name.clone(), fields: vec!(), parent: None };
-
-                if let Some( parent ) = struct_.get_children()
-                                                .into_iter()
-                                                .filter( |x| x.get_kind() == EntityKind::BaseSpecifier )
-                                                .nth(0) {
-                    type_info.parent = parent.get_name();
-                }
+                let mut type_info = from_entity;
 
                 println!("struct: {}", &name);
                 if let Some( struct_type ) = struct_.get_type() {
@@ -106,20 +144,19 @@ fn main() {
                         }
                     }
                 }
-
-                parsed_types.push( type_info );
             }
+*/
         }
     }
 
-    for parsed_type in parsed_types {
-        print!("Type: {}", parsed_type.name);
-        if let Some( parent ) = parsed_type.parent {
-            println!(" (parent: {})", parent);
+    for (_, typeInfo) in type_infos_map {
+        print!("Type: {}", typeInfo.name);
+        if let Some( parent ) = typeInfo.parent {
+            println!(" (parent: {})", parent.name);
         } else {
             println!();
         }
-        for field in parsed_type.fields {
+        for field in typeInfo.fields {
             println!("    Field: {} ({})", field.name, field.type_name);
         }
     }
