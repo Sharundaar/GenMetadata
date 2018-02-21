@@ -2,10 +2,10 @@ extern crate argparse;
 extern crate clang;
 
 use std::fs::read_dir;
-// use std::time::{Duration, Instant};
+use std::time::Instant;
 use argparse::{ArgumentParser, StoreTrue, StoreOption, List};
 use clang::*;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::result::Result;
 
 struct Options {
@@ -90,6 +90,8 @@ fn get_built_in_types() -> Vec<TypeInfo> {
 }
 
 fn main() {
+    let start = Instant::now();
+
     let mut options : Options = Options{
         verbose: false,
         input_directories: vec!(),
@@ -122,7 +124,7 @@ fn main() {
                         .filter(|x| x.ends_with( ".h" ))
                         .collect();
 
-    let mut type_infos_map: HashMap<String, TypeInfo> = HashMap::new();
+    let mut type_infos_map: BTreeMap<String, TypeInfo> = BTreeMap::new();
     for built_in in get_built_in_types() {
         type_infos_map.insert( built_in.name.clone(), built_in.clone() );
     }
@@ -163,4 +165,9 @@ fn main() {
             println!("    Field: {} ({})", field.name, field.type_name);
         }
     }
+
+    let duration = start.elapsed();
+    let nanos = duration.subsec_nanos() as f64;
+    let s = (1000.0*1000.0*1000.0 * (duration.as_secs() as f64) + nanos)/(1000.0 * 1000.0 * 1000.0 );
+    println!( "Finished in {}s.", s );
 }
