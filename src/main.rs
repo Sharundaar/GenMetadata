@@ -6,6 +6,7 @@ use std::fs::read_dir;
 use argparse::{ArgumentParser, StoreTrue, StoreOption, List};
 use clang::*;
 use std::collections::HashMap;
+use std::result::Result;
 
 struct Options {
     verbose: bool,
@@ -13,14 +14,16 @@ struct Options {
     output_file: Option<String>,
 }
 
-struct TypeField<'a> {
+#[derive(Clone)]
+struct TypeField {
     name: String,
-    type_name: &<'a> TypeInfo,
+    type_name: String,
 }
 
-struct TypeInfo<'a> {
+#[derive(Clone)]
+struct TypeInfo {
     name: String,
-    parent: Option<&<'a>TypeInfo>,
+    parent: Option<String>,
     fields: Vec<TypeField>,
     is_complete: bool,
 }
@@ -29,28 +32,40 @@ fn make_type_info( name: &str ) -> TypeInfo {
     return TypeInfo{ name: name.to_string(), parent: None, fields: vec!(), is_complete: true };
 }
 
-fn from_entity( &entity: Entity, mut& type_info_map: HashMap<String, TypeInfo> ) -> Result<&TypeInfo> {
-    if let Some(name) = entity.get_name() {
-        if let Some(type) = entity.get_type() {
+fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
+    if let Some( name ) = entity.get_name() {
+        if let Some( typeDef ) = entity.get_type() {
             let mut type_info = TypeInfo {
-                name: type.get_display_name().clone(),
-                parent = None,
+                name: typeDef.get_display_name(),
+                parent: None,
                 fields: vec!(),
-                is_complete: false,
+                is_complete: true,
+            };
+
+            if let Some( fields ) = typeDef.get_fields() {
+                for field in fields {
+                    if field.get_name() == None || field.get_type() == None { continue; }
+
+                    let type_field = TypeField{ name: field.get_name().unwrap(), type_name: field.get_type().unwrap().get_display_name() };
+                    type_info.fields.push( type_field );
+                }
+            }
+
+            if let Some( parent ) = entity.get_children().into_iter().filter(|x| x.get_kind() == EntityKind::BaseSpecifier).nth(0) {
+                if let Some( typeDef ) = parent.get_type() {
+                    type_info.parent = Some( typeDef.get_display_name() );
+                }
             }
 
             let type_info = type_info;
-
-            type_info_map.insert( type_info.name.clone(), type_info );
-            return Ok(&type_info_map.get( name ));
+            return Ok( type_info );
         }
     }
 
     return Err( "Couldn't generate a TypeInfo from this entity." );
 }
 
-fn get_built_in_types() -> Vec<TypeInfo> {
-    let built_ins: Vec<TypeInfo> = vec!(
+static built_ins: Vec<TypeInfo> = vec!(
         make_type_info( "int" ),
         make_type_info( "float" ),
         make_type_info( "double" ),
@@ -65,7 +80,9 @@ fn get_built_in_types() -> Vec<TypeInfo> {
         make_type_info( "f32" ),
         make_type_info( "f64" ),
     );
-    return built_ins;
+
+fn get_built_in_types() -> &'static Vec<TypeInfo> {
+    return &built_ins;
 }
 
 fn main() {
@@ -103,7 +120,7 @@ fn main() {
 
     let mut type_infos_map: HashMap<String, TypeInfo> = HashMap::new();
     for built_in in get_built_in_types() {
-        type_infos_map.insert( built_in.name, built_in );
+        type_infos_map.insert( built_in.name, built_in.clone() );
     }
 
     let clang = Clang::new().unwrap();
@@ -124,35 +141,17 @@ fn main() {
         for struct_ in structs {
             if !(struct_.is_in_main_file() && struct_.is_definition()) {continue};
 
-            from_entity( &struct_, mut& type_infos_map );
-/*
-            if let Some( name ) = struct_.get_name() {
-                let mut type_info = from_entity;
-
-                println!("struct: {}", &name);
-                if let Some( struct_type ) = struct_.get_type() {
-                    for field in struct_type.get_fields().unwrap() {
-                        if let Some( t ) = field.get_type() {
-                            println!("type kind: {:?}", t.get_kind());
-                        if let Some( name ) = field.get_name() {
-                            let type_field = TypeField {
-                                name: name,
-                                type_name: t.get_display_name(),
-                            };
-                            type_info.fields.push( type_field );
-                        }
-                        }
-                    }
-                }
-            }
-*/
+            match from_entity( &struct_ ) {
+                Ok( type_info ) => { type_infos_map.insert( type_info.name, type_info ); },
+                Err( error ) => { println!( "ERROR ({}): {}", file, error ); },
+            };
         }
     }
 
     for (_, typeInfo) in type_infos_map {
         print!("Type: {}", typeInfo.name);
         if let Some( parent ) = typeInfo.parent {
-            println!(" (parent: {})", parent.name);
+            println!(" (parent: {})", parent);
         } else {
             println!();
         }
