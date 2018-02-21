@@ -28,21 +28,23 @@ struct TypeInfo {
     is_complete: bool,
 }
 
-fn make_type_info( name: &str ) -> TypeInfo {
-    return TypeInfo{ name: name.to_string(), parent: None, fields: vec!(), is_complete: true };
+impl TypeInfo {
+    fn new( name: &str ) -> TypeInfo {
+        return TypeInfo{ name: name.to_string(), parent: None, fields: vec!(), is_complete: true };
+    }
 }
 
 fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
     if let Some( name ) = entity.get_name() {
-        if let Some( typeDef ) = entity.get_type() {
+        if let Some( type_def ) = entity.get_type() {
             let mut type_info = TypeInfo {
-                name: typeDef.get_display_name(),
+                name: name,
                 parent: None,
                 fields: vec!(),
                 is_complete: true,
             };
 
-            if let Some( fields ) = typeDef.get_fields() {
+            if let Some( fields ) = type_def.get_fields() {
                 for field in fields {
                     if field.get_name() == None || field.get_type() == None { continue; }
 
@@ -52,8 +54,8 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
             }
 
             if let Some( parent ) = entity.get_children().into_iter().filter(|x| x.get_kind() == EntityKind::BaseSpecifier).nth(0) {
-                if let Some( typeDef ) = parent.get_type() {
-                    type_info.parent = Some( typeDef.get_display_name() );
+                if let Some( type_def ) = parent.get_type() {
+                    type_info.parent = Some( type_def.get_display_name() );
                 }
             }
 
@@ -65,24 +67,26 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
     return Err( "Couldn't generate a TypeInfo from this entity." );
 }
 
-static built_ins: Vec<TypeInfo> = vec!(
-        make_type_info( "int" ),
-        make_type_info( "float" ),
-        make_type_info( "double" ),
-        make_type_info( "i8" ),
-        make_type_info( "i16" ),
-        make_type_info( "i32" ),
-        make_type_info( "i64" ),
-        make_type_info( "u8" ),
-        make_type_info( "u16" ),
-        make_type_info( "u32" ),
-        make_type_info( "u64" ),
-        make_type_info( "f32" ),
-        make_type_info( "f64" ),
-    );
 
-fn get_built_in_types() -> &'static Vec<TypeInfo> {
-    return &built_ins;
+
+fn get_built_in_types() -> Vec<TypeInfo> {
+    let built_ins: Vec<TypeInfo> = vec![
+        TypeInfo::new("int"),
+        TypeInfo::new("float"),
+        TypeInfo::new("double"),
+        TypeInfo::new("i8"),
+        TypeInfo::new("i16"),
+        TypeInfo::new("i32"),
+        TypeInfo::new("i64"),
+        TypeInfo::new("u8"),
+        TypeInfo::new("u16"),
+        TypeInfo::new("u32"),
+        TypeInfo::new("u64"),
+        TypeInfo::new("f32"),
+        TypeInfo::new("f64"),
+    ];
+
+    return built_ins;
 }
 
 fn main() {
@@ -120,7 +124,7 @@ fn main() {
 
     let mut type_infos_map: HashMap<String, TypeInfo> = HashMap::new();
     for built_in in get_built_in_types() {
-        type_infos_map.insert( built_in.name, built_in.clone() );
+        type_infos_map.insert( built_in.name.clone(), built_in.clone() );
     }
 
     let clang = Clang::new().unwrap();
@@ -142,20 +146,20 @@ fn main() {
             if !(struct_.is_in_main_file() && struct_.is_definition()) {continue};
 
             match from_entity( &struct_ ) {
-                Ok( type_info ) => { type_infos_map.insert( type_info.name, type_info ); },
+                Ok( type_info ) => { type_infos_map.insert( type_info.name.clone(), type_info ); },
                 Err( error ) => { println!( "ERROR ({}): {}", file, error ); },
             };
         }
     }
 
-    for (_, typeInfo) in type_infos_map {
-        print!("Type: {}", typeInfo.name);
-        if let Some( parent ) = typeInfo.parent {
+    for (_, type_info) in type_infos_map {
+        print!("Type: {}", type_info.name);
+        if let Some( parent ) = type_info.parent {
             println!(" (parent: {})", parent);
         } else {
             println!();
         }
-        for field in typeInfo.fields {
+        for field in type_info.fields {
             println!("    Field: {} ({})", field.name, field.type_name);
         }
     }
