@@ -35,8 +35,8 @@ impl TypeInfo {
 }
 
 fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
-    if let Some( name ) = entity.get_name() {
-        if let Some( type_def ) = entity.get_type() {
+    match ( entity.get_name(), entity.get_type() ) {
+        ( Some( name ), Some( type_def ) ) => {
             let mut type_info = TypeInfo {
                 name: name,
                 parent: None,
@@ -61,10 +61,11 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
 
             let type_info = type_info;
             return Ok( type_info );
-        }
+        },
+        ( None, Some(_) ) => return Err( "Couldn't generate a TypeInfo from this entity (missing name)."),
+        ( Some(_), None ) => return Err( "Couldn't generate a TypeInfo from this entity (missing type)."),
+        ( None, None ) => return Err( "Couldn't generate a TypeInfo from this entity." ),
     }
-
-    return Err( "Couldn't generate a TypeInfo from this entity." );
 }
 
 
