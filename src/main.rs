@@ -58,35 +58,66 @@ impl TypeInfo {
         self._scalar = Some( TypeInfoScalar { scalar_type: scalar_type } );
         self
     }
+
+    fn make_field( mut self, field_name: &str ) -> TypeInfo {
+        self._field = Some( TypeInfoField{ field_name: String::from( field_name ) } );
+        self
+    }
+
+    fn make_struct( mut self, parent: &Option<&str> ) -> TypeInfo {
+        let mut type_struct = TypeInfoStruct{ parent: None, fields: vec!() };
+        if let &Some( parent ) = parent {
+            type_struct.parent = Some( String::from( parent ) );
+        }
+        self._struct = Some(type_struct);
+        self
+    }
 }
 
-fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
+fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, &'static str> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
-            let mut type_info = TypeInfo::new( &name );
+            let mut type_info = TypeInfo::new( &name ).make_struct( &None );
 
-            if let Some( fields ) = type_def.get_fields() {
-                for field in fields {
-                    if field.get_name() == None || field.get_type() == None { continue; }
-
-                    let type_field = TypeInfo::new( &field.get_name().unwrap() );
-                    // TypeField{ name: field.get_name().unwrap(), type_name: field.get_type().unwrap().get_display_name() };
-                    // type_info.fields.push( type_field );
+            {
+                let mut type_info_struct = type_info._struct.as_mut().unwrap();
+                if let Some( parent_ent ) = entity.get_children().into_iter().filter(|x| x.get_kind() == EntityKind::BaseSpecifier).nth(0) {
+                    if let Some( type_def ) = parent_ent.get_type() {
+                        type_info_struct.parent = Some( type_def.get_display_name().clone() );
+                    }
                 }
-            }
 
-            if let Some( parent ) = entity.get_children().into_iter().filter(|x| x.get_kind() == EntityKind::BaseSpecifier).nth(0) {
-                if let Some( type_def ) = parent.get_type() {
-                    // type_info.parent = Some( type_def.get_display_name() );
+                if let Some( fields ) = type_def.get_fields() {
+                    for field in fields {
+                        match from_entity( &field ) {
+                            Ok( type_field ) => { type_info_struct.fields.push( type_field ); },
+                            Err( err ) => return Err( err ),
+                        }
+                    }
                 }
             }
 
             let type_info = type_info;
-            return Ok( type_info );
+            Ok( type_info )
         },
-        ( None, Some(_) ) => return Err( "Couldn't generate a TypeInfo from this entity (missing name)."),
-        ( Some(_), None ) => return Err( "Couldn't generate a TypeInfo from this entity (missing type)."),
-        ( None, None ) => return Err( "Couldn't generate a TypeInfo from this entity." ),
+        ( None, Some(_) ) => Err( "Couldn't generate a TypeInfo from this StructDecl (missing name)."),
+        ( Some(_), None ) => Err( "Couldn't generate a TypeInfo from this StructDecl (missing type)."),
+        ( None, None ) => Err( "Couldn't generate a TypeInfo from this StructDecl." ),
+    }
+}
+
+fn from_entity_fielddecl( entity: &Entity ) -> Result<TypeInfo, &'static str> {
+    match ( entity.get_name(), entity.get_type() ) {
+        ( Some( name ), Some( type_def ) ) => Ok( TypeInfo::from( &type_def.get_display_name() ).make_field( &name ) ),
+        _ => Err( "Couldn't generate Field from this FieldDecl." ),
+    }
+}
+
+fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
+    match entity.get_kind() {
+        EntityKind::StructDecl => from_entity_structdecl( entity ),
+        EntityKind::FieldDecl => from_entity_fielddecl( entity ),
+        _ => Err( "Couldn't recognize entity type" ),
     }
 }
 
@@ -178,19 +209,21 @@ fn main() {
         }
     }
 
-/*
-    for (_, type_info) in type_infos_map {
+
+    for type_info in type_infos_map.values().filter( |x| x._struct.is_some() ) {
         print!("Type: {}", type_info.name);
-        if let Some( parent ) = type_info.parent {
+        let type_struct = type_info._struct.as_ref().unwrap();
+
+        if let Some( ref parent ) = type_struct.parent {
             println!(" (parent: {})", parent);
         } else {
             println!();
         }
-        for field in type_info.fields {
-            println!("    Field: {} ({})", field.name, field.type_name);
+        for field in &type_struct.fields {
+            println!("    {} ({})", field._field.as_ref().unwrap().field_name, field.name);
         }
     }
-*/
+
 
     let duration = start.elapsed();
     let nanos = duration.subsec_nanos() as f64;
