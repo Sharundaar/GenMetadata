@@ -9,6 +9,7 @@ use argparse::{ArgumentParser, StoreTrue, StoreOption, List};
 use clang::*;
 use std::collections::BTreeMap;
 use std::result::Result;
+use std::fs::File;
 
 struct Options {
     verbose: bool,
@@ -134,6 +135,17 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
     }
 }
 
+fn write_header<'a, I>( iter : I ) -> Result<bool, &'static str>
+    where 
+        I: IntoIterator<Item = &'a TypeInfo>
+{
+    let mut file = match File::create( "type_db.h" ) {
+        Ok( file ) => file,
+        Err( _ ) => return Err( "Something bad happend" ),
+    };
+
+    Ok( true )
+}
 
 
 fn get_built_in_types() -> Vec<TypeInfo> {
@@ -243,6 +255,10 @@ fn main() {
         println!( " ({})", type_scalar.scalar_type );
     }
 
+    match write_header( type_infos_map.values() ) {
+        Ok(_) => {},
+        Err( err ) => { println!( "{}", err ); },
+    }
 
     let duration = start.elapsed();
     let nanos = duration.subsec_nanos() as f64;
