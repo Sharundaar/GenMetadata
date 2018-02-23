@@ -1,6 +1,8 @@
 extern crate argparse;
 extern crate clang;
 
+use std::fmt;
+use std::fmt::Display;
 use std::fs::read_dir;
 use std::time::Instant;
 use argparse::{ArgumentParser, StoreTrue, StoreOption, List};
@@ -38,6 +40,17 @@ enum ScalarType {
     INT,
     UINT,
     FLOAT
+}
+
+impl Display for ScalarType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ScalarType::*;
+        match *self {
+            INT => write!(f, "int"),
+            UINT => write!(f, "uint"),
+            FLOAT => write!(f, "float"),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -222,6 +235,12 @@ fn main() {
         for field in &type_struct.fields {
             println!("    {} ({})", field._field.as_ref().unwrap().field_name, field.name);
         }
+    }
+
+    for type_info in type_infos_map.values().filter( |x| x._scalar.is_some() ) {
+        print!("Type: {}", type_info.name);
+        let type_scalar = type_info._scalar.as_ref().unwrap();
+        println!( " ({})", type_scalar.scalar_type );
     }
 
 
