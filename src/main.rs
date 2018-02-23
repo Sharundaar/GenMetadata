@@ -15,47 +15,69 @@ struct Options {
 }
 
 #[derive(Clone)]
-struct TypeField {
+struct TypeInfo {
     name: String,
-    type_name: String,
+    _struct: Option<TypeInfoStruct>,
+    _field: Option<TypeInfoField>,
+    _scalar: Option<TypeInfoScalar>,
 }
 
 #[derive(Clone)]
-struct TypeInfo {
-    name: String,
+struct TypeInfoStruct {
+    fields: Vec<TypeInfo>,
     parent: Option<String>,
-    fields: Vec<TypeField>,
-    is_complete: bool,
+}
+
+#[derive(Clone)]
+struct TypeInfoField {
+    field_name: String
+}
+
+#[derive(Clone)]
+enum ScalarType {
+    INT,
+    UINT,
+    FLOAT
+}
+
+#[derive(Clone)]
+struct TypeInfoScalar {
+    scalar_type: ScalarType
 }
 
 impl TypeInfo {
-    fn new( name: &str ) -> TypeInfo {
-        return TypeInfo{ name: name.to_string(), parent: None, fields: vec!(), is_complete: true };
+    fn from( name: &str ) -> TypeInfo {
+        TypeInfo{ name: String::from(name), _struct: None, _field: None, _scalar: None }
+    }
+
+    fn new( name: &String ) -> TypeInfo {
+        TypeInfo{ name: name.clone(), _struct: None, _field: None, _scalar: None }
+    }
+
+    fn make_scalar( mut self, scalar_type: ScalarType ) -> TypeInfo {
+        self._scalar = Some( TypeInfoScalar { scalar_type: scalar_type } );
+        self
     }
 }
 
 fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
-            let mut type_info = TypeInfo {
-                name: name,
-                parent: None,
-                fields: vec!(),
-                is_complete: true,
-            };
+            let mut type_info = TypeInfo::new( &name );
 
             if let Some( fields ) = type_def.get_fields() {
                 for field in fields {
                     if field.get_name() == None || field.get_type() == None { continue; }
 
-                    let type_field = TypeField{ name: field.get_name().unwrap(), type_name: field.get_type().unwrap().get_display_name() };
-                    type_info.fields.push( type_field );
+                    let type_field = TypeInfo::new( &field.get_name().unwrap() );
+                    // TypeField{ name: field.get_name().unwrap(), type_name: field.get_type().unwrap().get_display_name() };
+                    // type_info.fields.push( type_field );
                 }
             }
 
             if let Some( parent ) = entity.get_children().into_iter().filter(|x| x.get_kind() == EntityKind::BaseSpecifier).nth(0) {
                 if let Some( type_def ) = parent.get_type() {
-                    type_info.parent = Some( type_def.get_display_name() );
+                    // type_info.parent = Some( type_def.get_display_name() );
                 }
             }
 
@@ -71,20 +93,21 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
 
 
 fn get_built_in_types() -> Vec<TypeInfo> {
+    use ScalarType::*;
     let built_ins: Vec<TypeInfo> = vec![
-        TypeInfo::new("int"),
-        TypeInfo::new("float"),
-        TypeInfo::new("double"),
-        TypeInfo::new("i8"),
-        TypeInfo::new("i16"),
-        TypeInfo::new("i32"),
-        TypeInfo::new("i64"),
-        TypeInfo::new("u8"),
-        TypeInfo::new("u16"),
-        TypeInfo::new("u32"),
-        TypeInfo::new("u64"),
-        TypeInfo::new("f32"),
-        TypeInfo::new("f64"),
+        TypeInfo::from("int").make_scalar(INT),
+        TypeInfo::from("float").make_scalar(FLOAT),
+        TypeInfo::from("double").make_scalar(FLOAT),
+        TypeInfo::from("i8").make_scalar(INT),
+        TypeInfo::from("i16").make_scalar(INT),
+        TypeInfo::from("i32").make_scalar(INT),
+        TypeInfo::from("i64").make_scalar(INT),
+        TypeInfo::from("u8").make_scalar(UINT),
+        TypeInfo::from("u16").make_scalar(UINT),
+        TypeInfo::from("u32").make_scalar(UINT),
+        TypeInfo::from("u64").make_scalar(UINT),
+        TypeInfo::from("f32").make_scalar(FLOAT),
+        TypeInfo::from("f64").make_scalar(FLOAT),
     ];
 
     return built_ins;
@@ -155,6 +178,7 @@ fn main() {
         }
     }
 
+/*
     for (_, type_info) in type_infos_map {
         print!("Type: {}", type_info.name);
         if let Some( parent ) = type_info.parent {
@@ -166,6 +190,7 @@ fn main() {
             println!("    Field: {} ({})", field.name, field.type_name);
         }
     }
+*/
 
     let duration = start.elapsed();
     let nanos = duration.subsec_nanos() as f64;
