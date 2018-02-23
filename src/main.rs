@@ -10,6 +10,7 @@ use clang::*;
 use std::collections::BTreeMap;
 use std::result::Result;
 use std::fs::File;
+use std::io::Write;
 
 struct Options {
     verbose: bool,
@@ -135,14 +136,25 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
     }
 }
 
-fn write_header<'a, I>( iter : I ) -> Result<bool, &'static str>
-    where 
-        I: IntoIterator<Item = &'a TypeInfo>
+fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, &'static str>
 {
+    // let iter = iter.into_iter();
     let mut file = match File::create( "type_db.h" ) {
         Ok( file ) => file,
         Err( _ ) => return Err( "Something bad happend" ),
     };
+
+    write!( file, "#pragma once\n\n" );
+
+    for type_info in type_info_map.values().filter( |t| t._struct.is_some() ) {
+        write!( file, "struct {};\n", type_info.name );
+    }
+
+    write!( file, "\n" );
+
+    for type_info in type_info_map.values().filter( |t| t._struct.is_some() ) {
+        write!( file, "template<> const TypeInfo* type_of<{}>();\n", type_info.name );
+    }
 
     Ok( true )
 }
@@ -255,7 +267,7 @@ fn main() {
         println!( " ({})", type_scalar.scalar_type );
     }
 
-    match write_header( type_infos_map.values() ) {
+    match write_header( &type_infos_map ) {
         Ok(_) => {},
         Err( err ) => { println!( "{}", err ); },
     }
