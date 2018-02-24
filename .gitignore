@@ -10,3 +10,4 @@
 **/*.rs.bk
 
 type_db.h
+type_db.cpp

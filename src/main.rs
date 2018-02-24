@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::result::Result;
 use std::fs::File;
 use std::io::Write;
+use std::collections::HashSet;
 
 struct Options {
     verbose: bool,
@@ -21,6 +22,7 @@ struct Options {
 #[derive(Clone)]
 struct TypeInfo {
     name: String,
+    source_file: Option<String>,
     _struct: Option<TypeInfoStruct>,
     _field: Option<TypeInfoField>,
     _scalar: Option<TypeInfoScalar>,
@@ -62,11 +64,11 @@ struct TypeInfoScalar {
 
 impl TypeInfo {
     fn from( name: &str ) -> TypeInfo {
-        TypeInfo{ name: String::from(name), _struct: None, _field: None, _scalar: None }
+        TypeInfo{ name: String::from(name), source_file: None, _struct: None, _field: None, _scalar: None }
     }
 
     fn new( name: &String ) -> TypeInfo {
-        TypeInfo{ name: name.clone(), _struct: None, _field: None, _scalar: None }
+        TypeInfo{ name: name.clone(), source_file: None, _struct: None, _field: None, _scalar: None }
     }
 
     fn make_scalar( mut self, scalar_type: ScalarType ) -> TypeInfo {
@@ -105,10 +107,25 @@ fn has_object_parent( struct_info: &TypeInfoStruct, type_info_map: &BTreeMap<Str
     return false;
 }
 
+fn get_source_file( entity: &Entity ) -> Option<String> {
+    match entity.get_location() {
+        Some( location ) => {
+            if let Some( file_location ) = location.get_file_location().file {
+                Some( file_location.get_path().file_name().unwrap().to_str().unwrap().to_string() )
+            }
+            else {
+                None
+            }
+        },
+        None => None,
+    }
+}
+
 fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, &'static str> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
             let mut type_info = TypeInfo::new( &name ).make_struct( &None );
+            type_info.source_file = get_source_file( entity );
 
             {
                 let mut type_info_struct = type_info._struct.as_mut().unwrap();
@@ -171,6 +188,60 @@ fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, &
     for type_info in type_info_map.values().filter( |t| t._struct.is_some() ) {
         write!( file, "template<> const TypeInfo* type_of<{}>();\n", type_info.name );
     }
+
+    Ok( true )
+}
+
+fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<bool, &'static str> {
+    let mut file = match File::create( "type_db.cpp" ) {
+        Ok( file ) => file,
+        Err( _ ) => return Err( "Something bad happend" ),
+    };
+
+    // includes
+    {
+        let mut includes: HashSet<&str> = [ "type_db.h", "basic_types.h" ].iter().cloned().collect();
+
+        for type_info in type_info_map.values() {
+            if let Some( ref source_file ) = type_info.source_file {
+                includes.insert( source_file );
+            }
+        }
+
+        for include in includes.iter() {
+            writeln!( file, "#include \"{}\"", include );
+        }
+        writeln!( file, "" );
+    }
+
+
+/*
+    static ScalarType type_double ( sizeof( double ), ScalarType::Type::FLOAT );
+    template<> const TypeInfo* type_of<double>() { return &type_double; }
+    template<> const TypeInfo* type_of<double>( double obj ) { return &type_double; }
+*/
+
+    for type_info in type_info_map.values().filter( |t| t._scalar.is_some() ) {
+        use ScalarType::*;
+
+        let scalar_type = type_info._scalar.as_ref().unwrap();
+        let scalar_name = &type_info.name;
+
+        let scalar_type_name = match scalar_type.scalar_type {
+            INT => "INT",
+            UINT => "UINT",
+            FLOAT => "FLOAT",
+        };
+        writeln!( file, "static ScalarType type_{scalar_name} ( sizeof( {scalar_name} ), ScalarType::Type::{scalar_type} );", scalar_name = scalar_name, scalar_type = scalar_type_name );
+        writeln!( file, "template<> const TypeInfo* type_of<{scalar_name}>() {{ return &type_{scalar_name}; }}", scalar_name = scalar_name );
+        writeln!( file, "template<> const TypeInfo* type_of<{scalar_name}>( {scalar_name} obj ) {{ return &type_{scalar_name}; }}", scalar_name = scalar_name );
+        writeln!( file, "" );
+    }
+
+    for type_info in type_info_map.values().filter( |t| t._struct.is_some() ) {
+        
+    }
+
 
     Ok( true )
 }
@@ -284,6 +355,11 @@ fn main() {
     }
 
     match write_header( &type_infos_map ) {
+        Ok(_) => {},
+        Err( err ) => { println!( "{}", err ); },
+    }
+
+    match write_implementation( &type_infos_map ) {
         Ok(_) => {},
         Err( err ) => { println!( "{}", err ); },
     }
