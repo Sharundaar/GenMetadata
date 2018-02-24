@@ -89,6 +89,22 @@ impl TypeInfo {
     }
 }
 
+fn has_object_parent( struct_info: &TypeInfoStruct, type_info_map: &BTreeMap<String, TypeInfo> ) -> bool {
+    if let Some( ref parent ) = struct_info.parent {
+        if parent == "Object" {
+            return true;
+        }
+
+        if let Some( ref parent_type ) = type_info_map.get( parent ) {
+            if let Some( ref parent_struct ) = parent_type._struct {
+                return has_object_parent( &parent_struct, &type_info_map );
+            }
+        }
+    }
+
+    return false;
+}
+
 fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, &'static str> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
