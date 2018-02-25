@@ -17,6 +17,7 @@ struct Options {
     verbose: bool,
     input_directories: Vec<String>,
     output_file: Option<String>,
+    no_output: bool,
 }
 
 #[derive(Clone)]
@@ -36,7 +37,11 @@ struct TypeInfoStruct {
 
 #[derive(Clone)]
 struct TypeInfoField {
-    field_name: String
+    field_name: String,
+    is_const: bool,
+    is_private: bool,
+    is_ptr: bool,
+    is_ref: bool,
 }
 
 #[derive(Clone)]
@@ -77,7 +82,7 @@ impl TypeInfo {
     }
 
     fn make_field( mut self, field_name: &str ) -> TypeInfo {
-        self._field = Some( TypeInfoField{ field_name: String::from( field_name ) } );
+        self._field = Some( TypeInfoField{ field_name: String::from( field_name ), is_const: false, is_private: false, is_ptr: false, is_ref: false } );
         self
     }
 
@@ -156,7 +161,30 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, &'static str> {
 
 fn from_entity_fielddecl( entity: &Entity ) -> Result<TypeInfo, &'static str> {
     match ( entity.get_name(), entity.get_type() ) {
-        ( Some( name ), Some( type_def ) ) => Ok( TypeInfo::from( &type_def.get_display_name() ).make_field( &name ) ),
+        ( Some( name ), Some( type_def ) ) => {
+            let mut type_info = TypeInfo::from( &type_def.get_display_name().replace( "const", "" ).replace("*", "").trim() ).make_field( &name );
+            {
+                let mut field_info = type_info._field.as_mut().unwrap();
+
+                use Accessibility::*;
+                match entity.get_accessibility().unwrap() {
+                    Private | Protected => field_info.is_private = true,
+                    Public              => field_info.is_private = false,
+                }
+
+                field_info.is_const = type_def.is_const_qualified();
+
+                use TypeKind::*;
+                match type_def.get_kind() {
+                    Pointer => {
+                        field_info.is_ptr = true;
+                    },
+                    _ => {},
+                }
+            }
+            let type_info = type_info;
+            Ok( type_info )
+        },
         _ => Err( "Couldn't generate Field from this FieldDecl." ),
     }
 }
@@ -194,10 +222,15 @@ fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, &
     Ok( true )
 }
 
-fn write_struct_header( type_info_map: &BTreeMap<String, TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, &'static str> {
+fn build_modifier_string( field: &TypeInfoField ) -> String {
+    let mut result: Vec<&str> = vec!();
 
+    if field.is_const   { result.push( "MemberType::Modifier::CONST" ); }
+    if field.is_ptr     { result.push( "MemberType::Modifier::POINTER" ); }
+    if field.is_private { result.push( "MemberType::Modifier::PRIVATE" ); }
+    if field.is_ref     { result.push( "MemberType::Modifier::REFERENCE" ); }
 
-    Ok( true )
+    result.join( "|" )
 }
 
 fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, &'static str> {
@@ -209,8 +242,9 @@ fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file
     };
 
     for field in &struct_type.fields {
-        let field_name = &field._field.as_ref().unwrap().field_name;
-        writeln!( file, "\tMemberType( \"{field_name}\", type_of<{field_type}>(), false ),", field_name = field_name, field_type = field.name );
+        let type_field = field._field.as_ref().unwrap();
+        let field_name = &type_field.field_name;
+        writeln!( file, "\tMemberType( \"{field_name}\", type_of<{field_type}>(), {modifier} ),", field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ) );
     }
 
     writeln!( file, "}} );" );
@@ -307,7 +341,8 @@ fn main() {
     let mut options : Options = Options{
         verbose: false,
         input_directories: vec!(),
-        output_file: None
+        output_file: None,
+        no_output: false,
     };
 
     {
@@ -315,6 +350,8 @@ fn main() {
         ap.set_description("Generate metadata files for my C++ GameEngine.");
         ap.refer(&mut options.verbose)
             .add_option(&["-v", "--verbose"], StoreTrue, "Be verbose");
+        ap.refer(&mut options.no_output)
+            .add_option(&["--no-output"], StoreTrue, "Don't output type_db.");
         ap.refer(&mut options.output_file)
             .add_option(&["-o", "--output"], StoreOption, "Output file");
         ap.refer(&mut options.input_directories)
@@ -387,14 +424,16 @@ fn main() {
         println!( " ({})", type_scalar.scalar_type );
     }
 
-    match write_header( &type_infos_map ) {
-        Ok(_) => {},
-        Err( err ) => { println!( "{}", err ); },
-    }
+    if !options.no_output {
+        match write_header( &type_infos_map ) {
+            Ok(_) => {},
+            Err( err ) => { println!( "{}", err ); },
+        }
 
-    match write_implementation( &type_infos_map ) {
-        Ok(_) => {},
-        Err( err ) => { println!( "{}", err ); },
+        match write_implementation( &type_infos_map ) {
+            Ok(_) => {},
+            Err( err ) => { println!( "{}", err ); },
+        }
     }
 
     let duration = start.elapsed();
