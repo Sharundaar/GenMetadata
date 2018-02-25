@@ -185,9 +185,45 @@ fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, &
 
     write!( file, "\n" );
 
-    for type_info in type_info_map.values().filter( |t| t._struct.is_some() ) {
-        write!( file, "template<> const TypeInfo* type_of<{}>();\n", type_info.name );
+    for type_info in type_info_map.values() {
+        writeln!( file, "template<> const TypeInfo* type_of<{}>();", type_info.name );
+        writeln!( file, "const TypeInfo* type_of(const {}& obj);", type_info.name );
+        writeln!( file );
     }
+
+    Ok( true )
+}
+
+fn write_struct_header( type_info_map: &BTreeMap<String, TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, &'static str> {
+
+
+    Ok( true )
+}
+
+fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, &'static str> {
+
+    let struct_type = type_info._struct.as_ref().unwrap();
+    match struct_type.parent {
+        Some( ref parent ) => writeln!( file, "static StructType type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), static_cast<const StructType*>( type_of<{parent_name}>(), {{", struct_name = type_info.name, parent_name = parent ),
+        None => writeln!( file, "static StructType type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), {{", struct_name = type_info.name ),
+    };
+
+    for field in &struct_type.fields {
+        let field_name = &field._field.as_ref().unwrap().field_name;
+        writeln!( file, "\tMemberType( \"{field_name}\", type_of<{field_type}>(), false ),", field_name = field_name, field_type = field.name );
+    }
+
+    writeln!( file, "}});" );
+    writeln!( file, "template<> const TypeInfo* type_of<{struct_name}>() {{ return static_cast<TypeInfo*> &type_{struct_name}; }}", struct_name = type_info.name );
+
+    // Write constructors if needed
+    if has_object_parent( struct_type, type_info_map ) {
+        let parent = struct_type.parent.as_ref().unwrap();
+        writeln!( file, "{struct_name}::{struct_name}() : {parent_name}( type_of<{struct_name}>()->struct_id ) {{}}", struct_name = type_info.name, parent_name = parent );
+        writeln!( file, "{struct_name}::{struct_name}( u32 _type_id ) : {parent_name}( _type_id ) {{}}", struct_name = type_info.name, parent_name = parent );
+    }
+
+    writeln!( file );
 
     Ok( true )
 }
@@ -234,12 +270,12 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
         };
         writeln!( file, "static ScalarType type_{scalar_name} ( sizeof( {scalar_name} ), ScalarType::Type::{scalar_type} );", scalar_name = scalar_name, scalar_type = scalar_type_name );
         writeln!( file, "template<> const TypeInfo* type_of<{scalar_name}>() {{ return &type_{scalar_name}; }}", scalar_name = scalar_name );
-        writeln!( file, "template<> const TypeInfo* type_of<{scalar_name}>( {scalar_name} obj ) {{ return &type_{scalar_name}; }}", scalar_name = scalar_name );
+        writeln!( file, "const TypeInfo* type_of( const {scalar_name}& obj ) {{ return &type_{scalar_name}; }}", scalar_name = scalar_name );
         writeln!( file, "" );
     }
 
     for type_info in type_info_map.values().filter( |t| t._struct.is_some() ) {
-        
+        write_struct_implementation( &type_info_map, &mut file, &type_info );
     }
 
 
