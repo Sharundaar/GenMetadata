@@ -204,8 +204,8 @@ fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file
 
     let struct_type = type_info._struct.as_ref().unwrap();
     match struct_type.parent {
-        Some( ref parent ) => writeln!( file, "static StructType type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), static_cast<const StructType*>( type_of<{parent_name}>(), {{", struct_name = type_info.name, parent_name = parent ),
-        None => writeln!( file, "static StructType type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), {{", struct_name = type_info.name ),
+        Some( ref parent ) => writeln!( file, "static StructType type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), static_cast<const StructType*>( type_of<{parent_name}>() ), {{", struct_name = type_info.name, parent_name = parent ),
+        None => writeln!( file, "static StructType type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), nullptr, std::vector<MemberType> {{", struct_name = type_info.name ),
     };
 
     for field in &struct_type.fields {
@@ -213,13 +213,13 @@ fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file
         writeln!( file, "\tMemberType( \"{field_name}\", type_of<{field_type}>(), false ),", field_name = field_name, field_type = field.name );
     }
 
-    writeln!( file, "}});" );
-    writeln!( file, "template<> const TypeInfo* type_of<{struct_name}>() {{ return static_cast<TypeInfo*> &type_{struct_name}; }}", struct_name = type_info.name );
+    writeln!( file, "}} );" );
+    writeln!( file, "template<> const TypeInfo* type_of<{struct_name}>() {{ return static_cast<TypeInfo*>( &type_{struct_name} ); }}", struct_name = type_info.name );
 
     // Write constructors if needed
     if has_object_parent( struct_type, type_info_map ) {
         let parent = struct_type.parent.as_ref().unwrap();
-        writeln!( file, "{struct_name}::{struct_name}() : {parent_name}( type_of<{struct_name}>()->struct_id ) {{}}", struct_name = type_info.name, parent_name = parent );
+        writeln!( file, "{struct_name}::{struct_name}() : {parent_name}( type_{struct_name}.struct_id ) {{}}", struct_name = type_info.name, parent_name = parent );
         writeln!( file, "{struct_name}::{struct_name}( u32 _type_id ) : {parent_name}( _type_id ) {{}}", struct_name = type_info.name, parent_name = parent );
     }
 
@@ -286,9 +286,6 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
 fn get_built_in_types() -> Vec<TypeInfo> {
     use ScalarType::*;
     let built_ins: Vec<TypeInfo> = vec![
-        TypeInfo::from("int").make_scalar(INT),
-        TypeInfo::from("float").make_scalar(FLOAT),
-        TypeInfo::from("double").make_scalar(FLOAT),
         TypeInfo::from("i8").make_scalar(INT),
         TypeInfo::from("i16").make_scalar(INT),
         TypeInfo::from("i32").make_scalar(INT),
