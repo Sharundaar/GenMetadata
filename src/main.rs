@@ -12,6 +12,7 @@ use std::result::Result;
 use std::fs::File;
 use std::io::Write;
 use std::collections::HashSet;
+use std::collections::HashMap;
 
 struct Options {
     verbose: bool,
@@ -24,9 +25,10 @@ struct Options {
 struct TypeInfo {
     name: String,
     source_file: Option<String>,
-    _struct: Option<TypeInfoStruct>,
-    _field: Option<TypeInfoField>,
-    _scalar: Option<TypeInfoScalar>,
+    _struct:     Option<TypeInfoStruct>,
+    _field:      Option<TypeInfoField>,
+    _scalar:     Option<TypeInfoScalar>,
+    _enum:       Option<TypeInfoEnum>,
 }
 
 #[derive(Clone)]
@@ -67,13 +69,19 @@ struct TypeInfoScalar {
     scalar_type: ScalarType
 }
 
+#[derive(Clone)]
+struct TypeInfoEnum {
+    underlying_type: String,
+    enum_values: HashMap<String, (i32, u32)>,
+}
+
 impl TypeInfo {
     fn from( name: &str ) -> TypeInfo {
-        TypeInfo{ name: String::from(name), source_file: None, _struct: None, _field: None, _scalar: None }
+        TypeInfo{ name: String::from(name), source_file: None, _struct: None, _field: None, _scalar: None, _enum: None }
     }
 
     fn new( name: &String ) -> TypeInfo {
-        TypeInfo{ name: name.clone(), source_file: None, _struct: None, _field: None, _scalar: None }
+        TypeInfo{ name: name.clone(), source_file: None, _struct: None, _field: None, _scalar: None, _enum: None }
     }
 
     fn make_scalar( mut self, scalar_type: ScalarType ) -> TypeInfo {
@@ -92,6 +100,12 @@ impl TypeInfo {
             type_struct.parent = Some( String::from( parent ) );
         }
         self._struct = Some(type_struct);
+        self
+    }
+
+    fn make_enum( mut self, underlying_type: &str ) -> TypeInfo {
+        let mut type_enum = TypeInfoEnum{ underlying_type: String::from( underlying_type ), enum_values: HashMap::new() };
+        self._enum = Some(type_enum);
         self
     }
 }
@@ -126,26 +140,41 @@ fn get_source_file( entity: &Entity ) -> Option<String> {
     }
 }
 
-fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, &'static str> {
+fn from_entity_structdecl( entity: &Entity, type_info_map: &mut BTreeMap<String, TypeInfo> ) -> Result<TypeInfo, String> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
             let mut type_info = TypeInfo::new( &name ).make_struct( &None );
             type_info.source_file = get_source_file( entity );
 
             {
+                use EntityKind::*;
                 let mut type_info_struct = type_info._struct.as_mut().unwrap();
-                if let Some( parent_ent ) = entity.get_children().into_iter().filter(|x| x.get_kind() == EntityKind::BaseSpecifier).nth(0) {
-                    if let Some( type_def ) = parent_ent.get_type() {
-                        type_info_struct.parent = Some( type_def.get_display_name().clone() );
-                    }
-                }
-
-                if let Some( fields ) = type_def.get_fields() {
-                    for field in fields {
-                        match from_entity( &field ) {
-                            Ok( type_field ) => { type_info_struct.fields.push( type_field ); },
-                            Err( err ) => return Err( err ),
+                for child in entity.get_children().into_iter() {
+                    match child.get_kind() {
+                        BaseSpecifier => {
+                            if let Some( type_def ) = child.get_type() {
+                                type_info_struct.parent = Some( type_def.get_display_name().clone() );
+                            }
+                        },
+                        FieldDecl => {
+                            match from_entity( &child, type_info_map ) {
+                                Ok( type_field ) => { type_info_struct.fields.push( type_field ); },
+                                Err( err ) => {},
+                            }
+                        },
+                        EnumDecl => {
+                            match from_entity( &child, type_info_map ) {
+                                Ok( type_enum ) => { type_info_map.insert( type_enum.name.clone(), type_enum ); },
+                                Err( err ) => {},
+                            }
+                        },
+                        StructDecl => {
+                            match from_entity( &child, type_info_map ) {
+                                Ok( type_struct ) => { type_info_map.insert( type_struct.name.clone(), type_struct ); },
+                                Err( err ) => {},
+                            }
                         }
+                        _ => {}
                     }
                 }
             }
@@ -153,13 +182,13 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, &'static str> {
             let type_info = type_info;
             Ok( type_info )
         },
-        ( None, Some(_) ) => Err( "Couldn't generate a TypeInfo from this StructDecl (missing name)."),
-        ( Some(_), None ) => Err( "Couldn't generate a TypeInfo from this StructDecl (missing type)."),
-        ( None, None ) => Err( "Couldn't generate a TypeInfo from this StructDecl." ),
+        ( None, Some(_) ) => Err( "Couldn't generate a TypeInfo from this StructDecl (missing name).".to_string() ),
+        ( Some(_), None ) => Err( "Couldn't generate a TypeInfo from this StructDecl (missing type).".to_string() ),
+        ( None, None ) => Err( "Couldn't generate a TypeInfo from this StructDecl.".to_string() ),
     }
 }
 
-fn from_entity_fielddecl( entity: &Entity ) -> Result<TypeInfo, &'static str> {
+fn from_entity_fielddecl( entity: &Entity ) -> Result<TypeInfo, String> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
             let mut type_info = TypeInfo::from( &type_def.get_display_name().replace( "const", "" ).replace("*", "").trim() ).make_field( &name );
@@ -185,24 +214,44 @@ fn from_entity_fielddecl( entity: &Entity ) -> Result<TypeInfo, &'static str> {
             let type_info = type_info;
             Ok( type_info )
         },
-        _ => Err( "Couldn't generate Field from this FieldDecl." ),
+        _ => Err( "Couldn't generate Field from this FieldDecl.".to_string() ),
     }
 }
 
-fn from_entity( entity: &Entity ) -> Result<TypeInfo, &'static str> {
+fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, String> {
+    match ( entity.get_name(), entity.get_type() ) {
+        ( Some( name ), Some( type_def ) ) => {
+            let mut type_info = TypeInfo::from( &type_def.get_display_name() ).make_enum( &entity.get_enum_underlying_type().unwrap().get_display_name() );
+            println!("Parsing enum {:?}", type_info.name );
+            {
+                let mut type_enum = type_info._enum.as_mut().unwrap();
+                for child in entity.get_children() {
+                    println!("\tval: {:?}", child.get_kind() );
+                }
+            }
+
+            let type_info = type_info;
+            Ok( type_info )
+        },
+        _ => Err( "Couldn't generate Field from this EnumDecl.".to_string() ),
+    }
+}
+
+fn from_entity( entity: &Entity, type_info_map: &mut BTreeMap<String, TypeInfo> ) -> Result<TypeInfo, String> {
     match entity.get_kind() {
-        EntityKind::StructDecl => from_entity_structdecl( entity ),
-        EntityKind::FieldDecl => from_entity_fielddecl( entity ),
-        _ => Err( "Couldn't recognize entity type" ),
+        EntityKind::StructDecl => from_entity_structdecl( entity, type_info_map ),
+        EntityKind::FieldDecl  => from_entity_fielddecl( entity ),
+        EntityKind::EnumDecl   => from_entity_enumdecl( entity ),
+        _ => Err( "Couldn't recognize entity type".to_string() ),
     }
 }
 
-fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, &'static str>
+fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, String>
 {
     // let iter = iter.into_iter();
     let mut file = match File::create( "type_db.h" ) {
         Ok( file ) => file,
-        Err( _ ) => return Err( "Something bad happend" ),
+        Err( _ ) => return Err( "Something bad happend".to_string() ),
     };
 
     write!( file, "#pragma once\n\n" );
@@ -233,7 +282,7 @@ fn build_modifier_string( field: &TypeInfoField ) -> String {
     result.join( "|" )
 }
 
-fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, &'static str> {
+fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, String> {
 
     let struct_type = type_info._struct.as_ref().unwrap();
     match struct_type.parent {
@@ -262,10 +311,10 @@ fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file
     Ok( true )
 }
 
-fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<bool, &'static str> {
+fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<bool, String> {
     let mut file = match File::create( "type_db.cpp" ) {
         Ok( file ) => file,
-        Err( _ ) => return Err( "Something bad happend" ),
+        Err( _ ) => return Err( "Something bad happend".to_string() ),
     };
 
     // includes
@@ -391,12 +440,8 @@ fn main() {
                                   "-I..\\Externals\\GLAD\\include\\"] )
                     .parse().unwrap();
         
-        let structs = tu.get_entity().get_children().into_iter().filter(|e| { e.get_kind() == EntityKind::StructDecl }).collect::<Vec<_>>();
-
-        for struct_ in structs {
-            if !(struct_.is_in_main_file() && struct_.is_definition()) {continue};
-
-            match from_entity( &struct_ ) {
+        for entity in tu.get_entity().get_children().iter().filter( |e| e.is_in_main_file() && e.is_definition() ) {
+            match from_entity( &entity, &mut type_infos_map ) {
                 Ok( type_info ) => { type_infos_map.insert( type_info.name.clone(), type_info ); },
                 Err( error ) => { println!( "ERROR ({}): {}", file, error ); },
             };
