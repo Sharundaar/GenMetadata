@@ -72,7 +72,7 @@ struct TypeInfoScalar {
 #[derive(Clone)]
 struct TypeInfoEnum {
     underlying_type: String,
-    enum_values: HashMap<String, (i32, u32)>,
+    enum_values: HashMap<String, (i64, u64)>,
 }
 
 impl TypeInfo {
@@ -222,11 +222,10 @@ fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, String> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
             let mut type_info = TypeInfo::from( &type_def.get_display_name() ).make_enum( &entity.get_enum_underlying_type().unwrap().get_display_name() );
-            println!("Parsing enum {:?}", type_info.name );
             {
                 let mut type_enum = type_info._enum.as_mut().unwrap();
                 for child in entity.get_children() {
-                    println!("\tval: {:?}", child.get_kind() );
+                    type_enum.enum_values.insert( child.get_name().unwrap().clone(), child.get_enum_constant_value().unwrap() );
                 }
             }
 
@@ -242,7 +241,7 @@ fn from_entity( entity: &Entity, type_info_map: &mut BTreeMap<String, TypeInfo> 
         EntityKind::StructDecl => from_entity_structdecl( entity, type_info_map ),
         EntityKind::FieldDecl  => from_entity_fielddecl( entity ),
         EntityKind::EnumDecl   => from_entity_enumdecl( entity ),
-        _ => Err( "Couldn't recognize entity type".to_string() ),
+        kind => Err( format!( "Unhandled entity kind: {:?}", kind) ),
     }
 }
 
@@ -332,13 +331,6 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
         }
         writeln!( file, "" );
     }
-
-
-/*
-    static ScalarType type_double ( sizeof( double ), ScalarType::Type::FLOAT );
-    template<> const TypeInfo* type_of<double>() { return &type_double; }
-    template<> const TypeInfo* type_of<double>( double obj ) { return &type_double; }
-*/
 
     for type_info in type_info_map.values().filter( |t| t._scalar.is_some() ) {
         use ScalarType::*;
@@ -448,7 +440,6 @@ fn main() {
         }
     }
 
-
     for type_info in type_infos_map.values().filter( |x| x._struct.is_some() ) {
         print!("Type: {}", type_info.name);
         let type_struct = type_info._struct.as_ref().unwrap();
@@ -460,6 +451,15 @@ fn main() {
         }
         for field in &type_struct.fields {
             println!("    {} ({})", field._field.as_ref().unwrap().field_name, field.name);
+        }
+    }
+
+    for type_info in type_infos_map.values().filter( |x| x._enum.is_some() ) {
+        let type_enum = type_info._enum.as_ref().unwrap();
+        println!("Enum: {} ({})", type_info.name, type_enum.underlying_type);
+
+        for (name, &(ival, uval)) in &type_enum.enum_values {
+            println!("    {}: {}", name, uval);
         }
     }
 
