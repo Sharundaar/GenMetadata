@@ -140,7 +140,7 @@ fn get_source_file( entity: &Entity ) -> Option<String> {
     }
 }
 
-fn from_entity_structdecl( entity: &Entity, type_info_map: &mut BTreeMap<String, TypeInfo> ) -> Result<TypeInfo, String> {
+fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, String> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
             let mut type_info = TypeInfo::new( &name ).make_struct( &None );
@@ -157,23 +157,11 @@ fn from_entity_structdecl( entity: &Entity, type_info_map: &mut BTreeMap<String,
                             }
                         },
                         FieldDecl => {
-                            match from_entity( &child, type_info_map ) {
+                            match from_entity( &child ) {
                                 Ok( type_field ) => { type_info_struct.fields.push( type_field ); },
                                 Err( err ) => {},
                             }
                         },
-                        EnumDecl => {
-                            match from_entity( &child, type_info_map ) {
-                                Ok( type_enum ) => { type_info_map.insert( type_enum.name.clone(), type_enum ); },
-                                Err( err ) => {},
-                            }
-                        },
-                        StructDecl => {
-                            match from_entity( &child, type_info_map ) {
-                                Ok( type_struct ) => { type_info_map.insert( type_struct.name.clone(), type_struct ); },
-                                Err( err ) => {},
-                            }
-                        }
                         _ => {}
                     }
                 }
@@ -219,9 +207,11 @@ fn from_entity_fielddecl( entity: &Entity ) -> Result<TypeInfo, String> {
 }
 
 fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, String> {
-    match ( entity.get_name(), entity.get_type() ) {
-        ( Some( name ), Some( type_def ) ) => {
+    match ( entity.is_scoped(), entity.get_type() ) {
+        ( true, Some( type_def ) ) => {
             let mut type_info = TypeInfo::from( &type_def.get_display_name() ).make_enum( &entity.get_enum_underlying_type().unwrap().get_display_name() );
+            type_info.source_file = get_source_file( entity );
+
             {
                 let mut type_enum = type_info._enum.as_mut().unwrap();
                 for child in entity.get_children() {
@@ -232,13 +222,14 @@ fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, String> {
             let type_info = type_info;
             Ok( type_info )
         },
-        _ => Err( "Couldn't generate Field from this EnumDecl.".to_string() ),
+        ( false, Some( type_def ) ) => Err( format!("Enum {} is unscoped, can't generate TypeInfo for unscoped enums.", type_def.get_display_name() ) ),
+        _ => Err( "Couldn't generate TypeInfo from this EnumDecl.".to_string() ),
     }
 }
 
-fn from_entity( entity: &Entity, type_info_map: &mut BTreeMap<String, TypeInfo> ) -> Result<TypeInfo, String> {
+fn from_entity( entity: &Entity ) -> Result<TypeInfo, String> {
     match entity.get_kind() {
-        EntityKind::StructDecl => from_entity_structdecl( entity, type_info_map ),
+        EntityKind::StructDecl => from_entity_structdecl( entity ),
         EntityKind::FieldDecl  => from_entity_fielddecl( entity ),
         EntityKind::EnumDecl   => from_entity_enumdecl( entity ),
         kind => Err( format!( "Unhandled entity kind: {:?}", kind) ),
@@ -247,16 +238,22 @@ fn from_entity( entity: &Entity, type_info_map: &mut BTreeMap<String, TypeInfo> 
 
 fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, String>
 {
-    // let iter = iter.into_iter();
     let mut file = match File::create( "type_db.h" ) {
         Ok( file ) => file,
         Err( _ ) => return Err( "Something bad happend".to_string() ),
     };
 
-    write!( file, "#pragma once\n\n" );
+    writeln!( file, "#pragma once\n" );
+
+    for type_info in type_info_map.values().filter( |t| t._enum.is_some() ) {
+        let enum_type = type_info._enum.as_ref().unwrap();
+        writeln!( file, "enum class {} : {};", type_info.name, enum_type.underlying_type );
+    }
+
+    writeln!( file );
 
     for type_info in type_info_map.values().filter( |t| t._struct.is_some() ) {
-        write!( file, "struct {};\n", type_info.name );
+        writeln!( file, "struct {};", type_info.name );
     }
 
     write!( file, "\n" );
@@ -273,12 +270,16 @@ fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, S
 fn build_modifier_string( field: &TypeInfoField ) -> String {
     let mut result: Vec<&str> = vec!();
 
-    if field.is_const   { result.push( "MemberType::Modifier::CONST" ); }
-    if field.is_ptr     { result.push( "MemberType::Modifier::POINTER" ); }
-    if field.is_private { result.push( "MemberType::Modifier::PRIVATE" ); }
-    if field.is_ref     { result.push( "MemberType::Modifier::REFERENCE" ); }
+    if field.is_const   { result.push( "MemberType_Modifier::CONST" ); }
+    if field.is_ptr     { result.push( "MemberType_Modifier::POINTER" ); }
+    if field.is_private { result.push( "MemberType_Modifier::PRIVATE" ); }
+    if field.is_ref     { result.push( "MemberType_Modifier::REFERENCE" ); }
 
-    result.join( "|" )
+
+    match result.is_empty() {
+        true  => String::from( "MemberType_Modifier::NONE" ),
+        false => result.join( "|" )
+    }
 }
 
 fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, String> {
@@ -292,7 +293,9 @@ fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file
     for field in &struct_type.fields {
         let type_field = field._field.as_ref().unwrap();
         let field_name = &type_field.field_name;
-        writeln!( file, "\tMemberType( \"{field_name}\", type_of<{field_type}>(), {modifier} ),", field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ) );
+        if type_info_map.get( &field.name ).is_some() {
+            writeln!( file, "\tMemberType( \"{field_name}\", type_of<{field_type}>(), {modifier} ),", field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ) );
+        }
     }
 
     writeln!( file, "}} );" );
@@ -332,6 +335,7 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
         writeln!( file, "" );
     }
 
+    // scalars
     for type_info in type_info_map.values().filter( |t| t._scalar.is_some() ) {
         use ScalarType::*;
 
@@ -343,12 +347,27 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
             UINT => "UINT",
             FLOAT => "FLOAT",
         };
-        writeln!( file, "static ScalarType type_{scalar_name} ( sizeof( {scalar_name} ), ScalarType::Type::{scalar_type} );", scalar_name = scalar_name, scalar_type = scalar_type_name );
+        writeln!( file, "static ScalarType type_{scalar_name} ( sizeof( {scalar_name} ), ScalarType_Type::{scalar_type} );", scalar_name = scalar_name, scalar_type = scalar_type_name );
         writeln!( file, "template<> const TypeInfo* type_of<{scalar_name}>() {{ return &type_{scalar_name}; }}", scalar_name = scalar_name );
         writeln!( file, "const TypeInfo* type_of( const {scalar_name}& obj ) {{ return &type_{scalar_name}; }}", scalar_name = scalar_name );
-        writeln!( file, "" );
+        writeln!( file );
     }
 
+    // enums
+    for type_info in type_info_map.values().filter( |t| t._enum.is_some() ) {
+        let enum_type = type_info._enum.as_ref().unwrap();
+        writeln!( file, "static EnumType type_{enum_name} ( \"{enum_name}\", type_of<{underlying_type}>(), {{", enum_name=type_info.name, underlying_type=enum_type.underlying_type );
+        for ( name, &(value, _) ) in &enum_type.enum_values {
+            writeln!( file, "    {{ \"{}\", {} }},", name, value );
+        }
+        writeln!( file, "}} );" );
+
+        writeln!(file, "template<> const TypeInfo* type_of<{enum_name}>() {{ return &type_{enum_name}; }}", enum_name=type_info.name );
+        writeln!(file, "const TypeInfo* type_of( const {enum_name}& obj ) {{ return &type_{enum_name}; }}", enum_name=type_info.name );
+        writeln!( file );
+    }
+
+    // structs
     for type_info in type_info_map.values().filter( |t| t._struct.is_some() ) {
         write_struct_implementation( &type_info_map, &mut file, &type_info );
     }
@@ -433,7 +452,7 @@ fn main() {
                     .parse().unwrap();
         
         for entity in tu.get_entity().get_children().iter().filter( |e| e.is_in_main_file() && e.is_definition() ) {
-            match from_entity( &entity, &mut type_infos_map ) {
+            match from_entity( &entity ) {
                 Ok( type_info ) => { type_infos_map.insert( type_info.name.clone(), type_info ); },
                 Err( error ) => { println!( "ERROR ({}): {}", file, error ); },
             };

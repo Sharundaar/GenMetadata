@@ -11,53 +11,55 @@ struct ScalarType;
 struct MemberType;
 struct StructType;
 
+enum class TypeInfo_Type
+{
+    SCALAR,
+    MEMBER,
+    STRUCT,
+    ENUM,
+};
+
 struct TypeInfo
 {
-    enum class Type
-    {
-        SCALAR,
-        MEMBER,
-        STRUCT,
-        ENUM,
-    };
-
-    TypeInfo( std::string _name, u32 _size, TypeInfo::Type _type );
+    TypeInfo( std::string _name, u32 _size, TypeInfo_Type _type );
 
     std::string name;
     u32 size;
-    TypeInfo::Type type;
+    TypeInfo_Type type;
 
     const StructType* operator()() { return (StructType*)this; }
 };
 
+enum class ScalarType_Type
+{
+    INT,
+    UINT,
+    FLOAT,
+};
+
 struct ScalarType : public TypeInfo
 {
-    enum class Type
-    {
-        INT,
-        UINT,
-        FLOAT,
-    };
+    ScalarType( u32 _size, ScalarType_Type _scalar_type );
+    static std::string get_name( u32 _size, ScalarType_Type _scalar_type );
 
-    ScalarType( u32 _size, ScalarType::Type _scalar_type );
-    static std::string get_name( u32 _size, ScalarType::Type _scalar_type );
+    ScalarType_Type scalar_type;
+};
 
-    ScalarType::Type scalar_type;
+enum class MemberType_Modifier
+{
+    NONE      = 0,
+    PRIVATE   = 1 << 0,
+    CONST     = 1 << 1,
+    POINTER   = 1 << 2,
+    REFERENCE = 1 << 3,
 };
 
 struct MemberType : public TypeInfo
 {
-    enum class Modifier {
-        PRIVATE   = 1 << 0,
-        CONST     = 1 << 1,
-        POINTER   = 1 << 2,
-        REFERENCE = 1 << 3,
-    };
-
-    MemberType( const std::string& _name, const TypeInfo* _member_type, Modifier _modifier );
+    MemberType( const std::string& _name, const TypeInfo* _member_type, MemberType_Modifier _modifier );
 
     const TypeInfo* member_type;
-    Modifier _modifier;
+    MemberType_Modifier modifier;
 };
 
 struct StructType : public TypeInfo
