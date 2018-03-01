@@ -11,7 +11,7 @@ int main( int, char** )
     cout << sizeof(myStruct) << endl;
     cout << myStruct.get_type()->size << endl;
 
-    for( const auto** typePtr = &s_registered_structs[0]; *typePtr != nullptr; ++typePtr )
+    for( const auto** typePtr = &s_object_types[0]; *typePtr != nullptr; ++typePtr )
     {
         const auto* type = *typePtr;
         cout << "Type: " << type->name << endl;

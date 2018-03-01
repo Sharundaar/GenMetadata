@@ -1,5 +1,7 @@
 #include "types.h"
 
+#include "object.h"
+
 TypeInfo::TypeInfo( std::string _name, u32 _size, TypeInfo_Type _type )
     : name( _name ), size( _size ), type( _type ) 
 {
@@ -47,10 +49,16 @@ EnumType::EnumType( const std::string& _name, const TypeInfo* _underlying_type, 
 {
 }
 
-StructType::StructType( const std::string& _name, u32 _size, const StructType* _parent, std::vector<MemberType> _members )
-    : TypeInfo( _name, _size, TypeInfo_Type::STRUCT ), parent(_parent), members(_members), struct_id( generate_struct_id() )
+static bool is_object( const StructType* type_info )
 {
-    s_registered_structs[struct_id] = this;
+    return type_info != nullptr && ( type_info == type_of<Object>() || is_object( type_info->parent ) );
+}
+
+StructType::StructType( const std::string& _name, u32 _size, const StructType* _parent, std::vector<MemberType> _members )
+    : TypeInfo( _name, _size, TypeInfo_Type::STRUCT ), parent(_parent), members(_members), struct_id( ( is_object(this) ? generate_struct_id() : INVALID_STRUCT_ID ) )
+{
+    if( struct_id != INVALID_STRUCT_ID )
+        s_object_types[struct_id] = this;
 }
 
 u32 StructType::generate_struct_id()
@@ -59,4 +67,4 @@ u32 StructType::generate_struct_id()
     return s_high_type_id++;
 }
 
-const StructType* s_registered_structs[MAX_TYPE_COUNT];
+const StructType* s_object_types[MAX_TYPE_COUNT];

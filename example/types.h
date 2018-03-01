@@ -62,6 +62,7 @@ struct MemberType : public TypeInfo
     MemberType_Modifier modifier;
 };
 
+#define INVALID_STRUCT_ID ((u32)(0 - 1))
 struct StructType : public TypeInfo
 {
     StructType( const std::string& _name, u32 _size, const StructType* _parent, std::vector<MemberType> _members );
@@ -81,6 +82,6 @@ struct EnumType : public TypeInfo
 };
 
 #define MAX_TYPE_COUNT 1024
-extern const StructType* s_registered_structs[MAX_TYPE_COUNT];
+extern const StructType* s_object_types[MAX_TYPE_COUNT];
 template<typename T> const TypeInfo* type_of();
 // const TypeInfo* type_of( const T& obj ); // for completness, this one doesn't need to be predeclared
