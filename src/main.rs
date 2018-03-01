@@ -297,7 +297,7 @@ fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file
         let type_field = field._field.as_ref().unwrap();
         let field_name = &type_field.field_name;
         if type_info_map.get( &field.name ).is_some() {
-            writeln!( file, "\tMemberType( \"{field_name}\", type_of<{field_type}>(), {modifier} ),", field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ) );
+            writeln!( file, "\tMemberType( \"{field_name}\", type_of<{field_type}>(), {modifier}, {offset} ),", field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset );
         }
     }
 

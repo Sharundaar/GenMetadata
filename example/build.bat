@@ -1,5 +1,8 @@
 @echo off
 
+del type_db.h
+del type_db.cpp
+
 cd ..
 cargo run --release -- example
 copy type_db.* example
