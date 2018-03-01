@@ -11,9 +11,9 @@
 
 struct Object
 {
-    Object( u32 _type_id ) : type_id( _type_id ) {}
-    u32 type_id;
-    const StructType* get_type() { return s_object_types[ type_id ]; }
+    Object( u32 _object_id ) : object_id( _object_id ) {}
+    u32 object_id;
+    const StructType* get_type() { return s_object_types[ object_id ]; }
 };
 
 struct MyStruct : public Object

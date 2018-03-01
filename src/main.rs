@@ -43,6 +43,7 @@ struct TypeInfoStruct {
 #[derive(Clone, Default)]
 struct TypeInfoField {
     field_name: String,
+    offset: u32,
     is_const: bool,
     is_private: bool,
     is_ptr: bool,
@@ -92,8 +93,8 @@ impl TypeInfo {
         self
     }
 
-    fn make_field( mut self, field_name: &str ) -> TypeInfo {
-        self._field = Some( TypeInfoField{ field_name: String::from( field_name ), is_const: false, is_private: false, is_ptr: false, is_ref: false } );
+    fn make_field( mut self, field_name: &str, offset: u32 ) -> TypeInfo {
+        self._field = Some( TypeInfoField{ field_name: String::from( field_name ), offset: offset, ..Default::default() } );
         self
     }
 
@@ -182,7 +183,7 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, String> {
 fn from_entity_fielddecl( entity: &Entity ) -> Result<TypeInfo, String> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
-            let mut type_info = TypeInfo::new( type_def.get_display_name().replace( "const", "" ).replace("*", "").trim() ).make_field( &name );
+            let mut type_info = TypeInfo::new( type_def.get_display_name().replace( "const", "" ).replace("*", "").trim() ).make_field( &name, entity.get_semantic_parent().unwrap().get_type().unwrap().get_offsetof( &name ).unwrap() as u32 );
             {
                 let mut field_info = type_info._field.as_mut().unwrap();
 
@@ -306,7 +307,7 @@ fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file
     // Write constructors if needed
     if has_object_parent( struct_type, type_info_map ) {
         let parent = struct_type.parent.as_ref().unwrap();
-        writeln!( file, "{struct_name}::{struct_name}() : {parent_name}( type_{struct_name}.struct_id ) {{}}", struct_name = type_info.name, parent_name = parent );
+        writeln!( file, "{struct_name}::{struct_name}() : {parent_name}( type_{struct_name}.object_data.object_id ) {{}}", struct_name = type_info.name, parent_name = parent );
         writeln!( file, "{struct_name}::{struct_name}( u32 _type_id ) : {parent_name}( _type_id ) {{}}", struct_name = type_info.name, parent_name = parent );
     }
 
@@ -500,7 +501,7 @@ fn main() {
             println!();
         }
         for field in &type_struct.fields {
-            println!("    {} ({})", field._field.as_ref().unwrap().field_name, field.name);
+            println!("    {}: {} ({})", field._field.as_ref().unwrap().offset, field._field.as_ref().unwrap().field_name, field.name);
         }
     }
 

@@ -11,13 +11,17 @@ int main( int, char** )
     cout << sizeof(myStruct) << endl;
     cout << myStruct.get_type()->size << endl;
 
-    for( const auto** typePtr = &s_object_types[0]; *typePtr != nullptr; ++typePtr )
+    for( const auto** typePtr = &s_all_types[0]; *typePtr != nullptr; ++typePtr )
     {
         const auto* type = *typePtr;
         cout << "Type: " << type->name << endl;
-        for( auto member : type->members )
+        if( type->type == TypeInfo_Type::STRUCT )
         {
-            cout << "\t" << member.member_type->name << " " << member.name << endl;
+            const auto* struct_type = (StructType*) type;
+            for( auto member : struct_type->members )
+            {
+                cout << "\t" << member.member_type->name << " " << member.name << endl;
+            }
         }
     }
 
