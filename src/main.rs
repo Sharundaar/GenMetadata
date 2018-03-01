@@ -1,11 +1,12 @@
 extern crate argparse;
 extern crate clang;
 
+use std::path::PathBuf;
 use std::fmt;
 use std::fmt::Display;
 use std::fs::read_dir;
 use std::time::Instant;
-use argparse::{ArgumentParser, StoreTrue, StoreOption, List};
+use argparse::{ArgumentParser, StoreTrue, StoreOption, Collect, List};
 use clang::*;
 use std::collections::BTreeMap;
 use std::result::Result;
@@ -14,9 +15,11 @@ use std::io::Write;
 use std::collections::HashSet;
 use std::collections::HashMap;
 
+#[derive(Default)]
 struct Options {
     verbose: bool,
     input_directories: Vec<String>,
+    additional_include_directories: Vec<String>,
     output_file: Option<String>,
     no_output: bool,
 }
@@ -236,8 +239,7 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, String> {
     }
 }
 
-fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, String>
-{
+fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, String> {
     let mut file = match File::create( "type_db.h" ) {
         Ok( file ) => file,
         Err( _ ) => return Err( "Something bad happend".to_string() ),
@@ -377,6 +379,22 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
 }
 
 
+fn generate_main_file( file_list: &Vec<PathBuf>) -> Result<(), String> {
+    let mut file = match File::create( "main.h" ) {
+        Ok( file ) => file,
+        Err( err ) => return Err( err.to_string() ),
+    };
+
+    for ref file_name in file_list {
+        match writeln!( file, "#include \"{}\"", file_name.file_name().unwrap().to_string_lossy() ) {
+            Ok(_) => {},
+            Err( err ) => return Err( err.to_string() ),
+        }
+    }
+
+    Ok(())
+}
+
 fn get_built_in_types() -> Vec<TypeInfo> {
     use ScalarType::*;
     let built_ins: Vec<TypeInfo> = vec![
@@ -395,15 +413,22 @@ fn get_built_in_types() -> Vec<TypeInfo> {
     return built_ins;
 }
 
+fn get_clang_arguments( input_directories: &Vec<String>, additional_include_directories: &Vec<String> ) -> Vec<String> {
+    let mut arguments: Vec<String> = vec![ "-x".into(), "c++".into() ];
+
+    for ref directory in input_directories.iter().chain( additional_include_directories.iter() ) {
+        arguments.push( format!( "-I{}", directory ) );
+    }
+
+    println!("{:?}", arguments);
+
+    arguments
+}
+
 fn main() {
     let start = Instant::now();
 
-    let mut options : Options = Options{
-        verbose: false,
-        input_directories: vec!(),
-        output_file: None,
-        no_output: false,
-    };
+    let mut options : Options = Options::default();
 
     {
         let mut ap = ArgumentParser::new();
@@ -414,6 +439,8 @@ fn main() {
             .add_option(&["--no-output"], StoreTrue, "Don't output type_db.");
         ap.refer(&mut options.output_file)
             .add_option(&["-o", "--output"], StoreOption, "Output file");
+        ap.refer(&mut options.additional_include_directories)
+            .add_option(&["-i", "--include"], Collect, "Additional include directories.");
         ap.refer(&mut options.input_directories)
             .add_argument("DIRECTORIES", List, "Input directories")
             .required();
@@ -423,15 +450,24 @@ fn main() {
 
     let options = options;
 
-    let entries = options.input_directories.into_iter()
+    let entries = options.input_directories.iter()
             .filter_map(|x| read_dir(x).ok())
             .flat_map(|x| x)
             .filter_map( |x| x.ok() );
 
-    let files: Vec<String> = entries.filter(|x| x.file_type().unwrap().is_file())
-                        .filter_map(|x| x.path().into_os_string().into_string().ok())
-                        .filter(|x| x.ends_with( ".h" ))
+    let files: Vec<PathBuf> = entries.filter(|x| x.file_type().unwrap().is_file())
+                        .map(|x| x.path() )
+                        .filter(|x| x.extension().is_some())
+                        .filter(|x| x.extension().unwrap() == "h")
                         .collect();
+
+    match generate_main_file( &files ) {
+        Err( err ) => println!( "ERROR: {}", err ),
+        Ok(_) => {},
+    };
+
+    let arguments = get_clang_arguments( &options.input_directories, &options.additional_include_directories );
+
 
     let mut type_infos_map: BTreeMap<String, TypeInfo> = BTreeMap::new();
     for built_in in get_built_in_types() {
@@ -441,22 +477,17 @@ fn main() {
     let clang = Clang::new().unwrap();
     let index = Index::new(&clang, false, true);
 
-    for file in files {
-        let tu = index.parser( &file )
-                    .arguments( &["-x", "c++", 
-                                  "-I..\\GameEngine2\\mathlib\\",
-                                  "-I..\\GameEngine2\\includes\\",
-                                  "-I..\\Externals\\STB\\",
-                                  "-I..\\Externals\\SDL2-2.0.5\\include\\",
-                                  "-I..\\Externals\\GLAD\\include\\"] )
-                    .parse().unwrap();
-        
-        for entity in tu.get_entity().get_children().iter().filter( |e| e.is_in_main_file() && e.is_definition() ) {
-            match from_entity( &entity ) {
-                Ok( type_info ) => { type_infos_map.insert( type_info.name.clone(), type_info ); },
-                Err( error ) => { println!( "ERROR ({}): {}", file, error ); },
-            };
-        }
+    let tu = index.parser( &"main.h" )
+                .arguments( &arguments )
+                .parse().unwrap();
+    
+    for entity in tu.get_entity().get_children().iter().filter( |e| !e.is_in_system_header() && e.is_definition() ) {
+        match from_entity( &entity ) {
+            Ok( type_info ) => { type_infos_map.insert( type_info.name.clone(), type_info ); },
+            Err( error ) => {
+                println!( "WARNING ({}): {}", get_source_file( &entity ).unwrap_or_else(|| String::from("NoFile")), error ); 
+            },
+        };
     }
 
     for type_info in type_infos_map.values().filter( |x| x._struct.is_some() ) {
