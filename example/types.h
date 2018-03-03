@@ -75,8 +75,8 @@ struct StructInfo : public TypeInfo
 {
     StructInfo( const std::string& _name, u32 _size, const StructInfo* _parent, std::vector<FieldInfo> _members );
 
-    const std::vector<FieldInfo> members;
     const StructInfo* parent;
+    const std::vector<FieldInfo> members;
     const bool is_object;
     const ObjectData object_data;
 };
