@@ -8,8 +8,8 @@ static u32 generate_type_id()
     return s_high_type_id++;
 }
 
-TypeInfo::TypeInfo( std::string _name, u32 _size, TypeInfo_Type _type )
-    : name( _name ), size( _size ), type( _type ), type_id( _type == TypeInfo_Type::MEMBER ? INVALID_TYPE_ID : generate_type_id() )
+TypeInfo::TypeInfo( const std::string& _name, u32 _size, TypeInfo_Type _type )
+    : name( _name ), size( _size ), type( _type ), type_id( generate_type_id() )
 {
     if( type_id != INVALID_TYPE_ID )
         s_all_types[type_id] = this;
@@ -47,8 +47,8 @@ std::string ScalarInfo::get_name( u32 _size, ScalarInfo_Type _scalar_type )
     return ""; // should not reach here
 }
 
-FieldInfo::FieldInfo( const std::string& _name, const TypeInfo* _member_type, FieldInfo_Modifier _modifier, u32 _offset )
-    : TypeInfo( _name, _member_type->size, TypeInfo_Type::MEMBER ), member_type( _member_type ), modifier( _modifier ), offset( _offset )
+FieldInfo::FieldInfo( const std::string& _name, const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset )
+    : name(_name), type( _type ), modifier( _modifier ), offset( _offset )
 {
 }
 

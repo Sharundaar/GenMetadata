@@ -16,7 +16,6 @@ struct StructInfo;
 enum class TypeInfo_Type
 {
     SCALAR,
-    MEMBER,
     STRUCT,
     ENUM,
 };
@@ -57,11 +56,12 @@ enum class FieldInfo_Modifier
     REFERENCE = 1 << 3,
 };
 
-struct FieldInfo : public TypeInfo
+struct FieldInfo
 {
-    FieldInfo( const std::string& _name, const TypeInfo* _member_type, FieldInfo_Modifier _modifier, u32 _offset );
+    FieldInfo( const std::string& _name, const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset );
 
-    const TypeInfo* member_type;
+    std::string name;
+    const TypeInfo* type;
     FieldInfo_Modifier modifier;
     u32 offset;
 };

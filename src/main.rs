@@ -180,10 +180,10 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, String> {
     }
 }
 
-fn from_entity_fielddecl( entity: &Entity ) -> Result<TypeInfo, String> {
+fn from_entity_fielddecl( entity: &Entity, parent_type: &Type ) -> Result<TypeInfo, String> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
-            let mut type_info = TypeInfo::new( type_def.get_display_name().replace( "const", "" ).replace("*", "").trim() ).make_field( &name, entity.get_semantic_parent().unwrap().get_type().unwrap().get_offsetof( &name ).unwrap() as u32 );
+            let mut type_info = TypeInfo::new( type_def.get_display_name().replace( "const", "" ).replace("*", "").trim() ).make_field( &name, ( parent_type.get_offsetof( &name ).unwrap() as u32 ) / 8 );
             {
                 let mut field_info = type_info._field.as_mut().unwrap();
 
@@ -234,7 +234,7 @@ fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, String> {
 fn from_entity( entity: &Entity ) -> Result<TypeInfo, String> {
     match entity.get_kind() {
         EntityKind::StructDecl => from_entity_structdecl( entity ),
-        EntityKind::FieldDecl  => from_entity_fielddecl( entity ),
+        EntityKind::FieldDecl  => from_entity_fielddecl( entity, &entity.get_semantic_parent().unwrap().get_type().unwrap() ), // should be ok for a field decl... haven't found a better way to pass this...
         EntityKind::EnumDecl   => from_entity_enumdecl( entity ),
         kind => Err( format!( "Unhandled entity kind: {:?}", kind) ),
     }

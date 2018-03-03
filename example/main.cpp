@@ -9,11 +9,11 @@ using namespace std;
 void set_field( Object* obj, std::string field_name, void* new_value )
 {
     auto* type = obj->get_type();
-    for( auto member : type->members )
+    for( const auto& member : type->members )
     {
         if( member.name == field_name )
         {
-            memcpy( ((char*)obj)+(member.offset/8), new_value, member.size);
+            memcpy( ((char*)obj)+(member.offset), new_value, member.type->size);
         }
     }
 
@@ -30,7 +30,7 @@ int main( int, char** )
             const auto* struct_type = (StructInfo*) type;
             for( auto member : struct_type->members )
             {
-                cout << "\t" << member.offset << ": " << member.member_type->name << " " << member.name << endl;
+                cout << "\t" << member.offset << ": " << member.type->name << " " << member.name << endl;
             }
         }
     }
