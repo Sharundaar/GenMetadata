@@ -51,7 +51,7 @@ struct TypeInfoField {
 }
 
 #[derive(Clone)]
-enum ScalarType {
+enum ScalarInfo {
     INT,
     UINT,
     FLOAT
@@ -59,7 +59,7 @@ enum ScalarType {
 
 #[derive(Clone, Default)]
 struct TypeInfoScalar {
-    scalar_type: ScalarType
+    scalar_type: ScalarInfo
 }
 
 #[derive(Clone, Default)]
@@ -68,13 +68,13 @@ struct TypeInfoEnum {
     enum_values: HashMap<String, (i64, u64)>,
 }
 
-impl Default for ScalarType {
-    fn default() -> ScalarType { ScalarType::INT }
+impl Default for ScalarInfo {
+    fn default() -> ScalarInfo { ScalarInfo::INT }
 }
 
-impl Display for ScalarType {
+impl Display for ScalarInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use ScalarType::*;
+        use ScalarInfo::*;
         match *self {
             INT => write!(f, "int"),
             UINT => write!(f, "uint"),
@@ -88,7 +88,7 @@ impl TypeInfo {
         TypeInfo{ name: name.into(), source_file: None, _struct: None, _field: None, _scalar: None, _enum: None }
     }
 
-    fn make_scalar( mut self, scalar_type: ScalarType ) -> TypeInfo {
+    fn make_scalar( mut self, scalar_type: ScalarInfo ) -> TypeInfo {
         self._scalar = Some( TypeInfoScalar { scalar_type: scalar_type } );
         self
     }
@@ -273,14 +273,14 @@ fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, S
 fn build_modifier_string( field: &TypeInfoField ) -> String {
     let mut result: Vec<&str> = vec!();
 
-    if field.is_const   { result.push( "MemberType_Modifier::CONSTANT" ); }
-    if field.is_ptr     { result.push( "MemberType_Modifier::POINTER" ); }
-    if field.is_private { result.push( "MemberType_Modifier::PRIVATE" ); }
-    if field.is_ref     { result.push( "MemberType_Modifier::REFERENCE" ); }
+    if field.is_const   { result.push( "FieldInfo_Modifier::CONSTANT" ); }
+    if field.is_ptr     { result.push( "FieldInfo_Modifier::POINTER" ); }
+    if field.is_private { result.push( "FieldInfo_Modifier::PRIVATE" ); }
+    if field.is_ref     { result.push( "FieldInfo_Modifier::REFERENCE" ); }
 
 
     match result.is_empty() {
-        true  => String::from( "MemberType_Modifier::NONE" ),
+        true  => String::from( "FieldInfo_Modifier::NONE" ),
         false => result.join( "|" )
     }
 }
@@ -289,15 +289,15 @@ fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file
 
     let struct_type = type_info._struct.as_ref().unwrap();
     match struct_type.parent {
-        Some( ref parent ) => writeln!( file, "static StructType type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), static_cast<const StructType*>( type_of<{parent_name}>() ), {{", struct_name = type_info.name, parent_name = parent ),
-        None => writeln!( file, "static StructType type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), nullptr, std::vector<MemberType> {{", struct_name = type_info.name ),
+        Some( ref parent ) => writeln!( file, "static StructInfo type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), static_cast<const StructInfo*>( type_of<{parent_name}>() ), {{", struct_name = type_info.name, parent_name = parent ),
+        None => writeln!( file, "static StructInfo type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), nullptr, std::vector<FieldInfo> {{", struct_name = type_info.name ),
     };
 
     for field in &struct_type.fields {
         let type_field = field._field.as_ref().unwrap();
         let field_name = &type_field.field_name;
         if type_info_map.get( &field.name ).is_some() {
-            writeln!( file, "\tMemberType( \"{field_name}\", type_of<{field_type}>(), {modifier}, {offset} ),", field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset );
+            writeln!( file, "    FieldInfo( \"{field_name}\", type_of<{field_type}>(), {modifier}, {offset} ),", field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset );
         }
     }
 
@@ -340,7 +340,7 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
 
     // scalars
     for type_info in type_info_map.values().filter( |t| t._scalar.is_some() ) {
-        use ScalarType::*;
+        use ScalarInfo::*;
 
         let scalar_type = type_info._scalar.as_ref().unwrap();
         let scalar_name = &type_info.name;
@@ -350,7 +350,7 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
             UINT => "UINT",
             FLOAT => "FLOAT",
         };
-        writeln!( file, "static ScalarType type_{scalar_name} ( sizeof( {scalar_name} ), ScalarType_Type::{scalar_type} );", scalar_name = scalar_name, scalar_type = scalar_type_name );
+        writeln!( file, "static ScalarInfo type_{scalar_name} ( sizeof( {scalar_name} ), ScalarInfo_Type::{scalar_type} );", scalar_name = scalar_name, scalar_type = scalar_type_name );
         writeln!( file, "template<> const TypeInfo* type_of<{scalar_name}>() {{ return &type_{scalar_name}; }}", scalar_name = scalar_name );
         writeln!( file, "const TypeInfo* type_of( const {scalar_name}& obj ) {{ return &type_{scalar_name}; }}", scalar_name = scalar_name );
         writeln!( file );
@@ -359,7 +359,7 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
     // enums
     for type_info in type_info_map.values().filter( |t| t._enum.is_some() ) {
         let enum_type = type_info._enum.as_ref().unwrap();
-        writeln!( file, "static EnumType type_{enum_name} ( \"{enum_name}\", type_of<{underlying_type}>(), {{", enum_name=type_info.name, underlying_type=enum_type.underlying_type );
+        writeln!( file, "static EnumInfo type_{enum_name} ( \"{enum_name}\", type_of<{underlying_type}>(), {{", enum_name=type_info.name, underlying_type=enum_type.underlying_type );
         for ( name, &(value, _) ) in &enum_type.enum_values {
             writeln!( file, "    {{ \"{}\", {} }},", name, value );
         }
@@ -397,7 +397,7 @@ fn generate_main_file( file_list: &Vec<PathBuf>) -> Result<(), String> {
 }
 
 fn get_built_in_types() -> Vec<TypeInfo> {
-    use ScalarType::*;
+    use ScalarInfo::*;
     let built_ins: Vec<TypeInfo> = vec![
         TypeInfo::new("i8").make_scalar(INT),
         TypeInfo::new("i16").make_scalar(INT),

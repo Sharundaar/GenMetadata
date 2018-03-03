@@ -9,9 +9,9 @@
 #define INVALID_TYPE_ID ((u32)0-1)
 
 struct TypeInfo;
-struct ScalarType;
-struct MemberType;
-struct StructType;
+struct ScalarInfo;
+struct FieldInfo;
+struct StructInfo;
 
 enum class TypeInfo_Type
 {
@@ -23,32 +23,32 @@ enum class TypeInfo_Type
 
 struct TypeInfo
 {
-    TypeInfo( std::string _name, u32 _size, TypeInfo_Type _type );
+    TypeInfo( const std::string& _name, u32 _size, TypeInfo_Type _type );
 
     std::string name;
     u32 size;
     TypeInfo_Type type;
     u32 type_id;
 
-    const StructType* operator()() { return (StructType*)this; }
+    const StructInfo* operator()() { return (StructInfo*)this; }
 };
 
-enum class ScalarType_Type
+enum class ScalarInfo_Type
 {
     INT,
     UINT,
     FLOAT,
 };
 
-struct ScalarType : public TypeInfo
+struct ScalarInfo : public TypeInfo
 {
-    ScalarType( u32 _size, ScalarType_Type _scalar_type );
-    static std::string get_name( u32 _size, ScalarType_Type _scalar_type );
+    ScalarInfo( u32 _size, ScalarInfo_Type _scalar_type );
+    static std::string get_name( u32 _size, ScalarInfo_Type _scalar_type );
 
-    ScalarType_Type scalar_type;
+    ScalarInfo_Type scalar_type;
 };
 
-enum class MemberType_Modifier
+enum class FieldInfo_Modifier
 {
     NONE      = 0,
     PRIVATE   = 1 << 0,
@@ -57,12 +57,12 @@ enum class MemberType_Modifier
     REFERENCE = 1 << 3,
 };
 
-struct MemberType : public TypeInfo
+struct FieldInfo : public TypeInfo
 {
-    MemberType( const std::string& _name, const TypeInfo* _member_type, MemberType_Modifier _modifier, u32 _offset );
+    FieldInfo( const std::string& _name, const TypeInfo* _member_type, FieldInfo_Modifier _modifier, u32 _offset );
 
     const TypeInfo* member_type;
-    MemberType_Modifier modifier;
+    FieldInfo_Modifier modifier;
     u32 offset;
 };
 
@@ -71,19 +71,19 @@ struct ObjectData
     u32 object_id;
 };
 
-struct StructType : public TypeInfo
+struct StructInfo : public TypeInfo
 {
-    StructType( const std::string& _name, u32 _size, const StructType* _parent, std::vector<MemberType> _members );
+    StructInfo( const std::string& _name, u32 _size, const StructInfo* _parent, std::vector<FieldInfo> _members );
 
-    const std::vector<MemberType> members;
-    const StructType* parent;
+    const std::vector<FieldInfo> members;
+    const StructInfo* parent;
     const bool is_object;
     const ObjectData object_data;
 };
 
-struct EnumType : public TypeInfo
+struct EnumInfo : public TypeInfo
 {
-    EnumType( const std::string& _name, const TypeInfo* _underlying_type, std::map<std::string, i64> _enum_values );
+    EnumInfo( const std::string& _name, const TypeInfo* _underlying_type, std::map<std::string, i64> _enum_values );
 
     std::map<std::string, i64> enum_values;
     const TypeInfo* underlying_type;
@@ -91,6 +91,6 @@ struct EnumType : public TypeInfo
 
 #define MAX_TYPE_COUNT 1024
 extern const TypeInfo* s_all_types[MAX_TYPE_COUNT];
-extern const StructType* s_object_types[MAX_TYPE_COUNT];
+extern const StructInfo* s_object_types[MAX_TYPE_COUNT];
 template<typename T> const TypeInfo* type_of();
 // const TypeInfo* type_of( const T& obj ); // for completness, this one doesn't need to be predeclared

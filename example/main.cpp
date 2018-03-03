@@ -27,7 +27,7 @@ int main( int, char** )
         cout << "Type: " << type->name << endl;
         if( type->type == TypeInfo_Type::STRUCT )
         {
-            const auto* struct_type = (StructType*) type;
+            const auto* struct_type = (StructInfo*) type;
             for( auto member : struct_type->members )
             {
                 cout << "\t" << member.offset << ": " << member.member_type->name << " " << member.name << endl;
