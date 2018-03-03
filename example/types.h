@@ -17,6 +17,8 @@ struct StructInfo;
 extern const TypeInfo* s_all_types[MAX_TYPE_COUNT];
 extern const StructInfo* s_object_types[MAX_TYPE_COUNT];
 template<typename T> const TypeInfo* type_of();
+const TypeInfo* get_type( u32 type_id );
+const StructInfo* get_object_type( u32 type_id );
 // const TypeInfo* type_of( const T& obj ); // for completness, this one doesn't need to be predeclared
 
 

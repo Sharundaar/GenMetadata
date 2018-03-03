@@ -16,6 +16,17 @@ struct Object
     const StructInfo* get_type() { return s_object_types[ object_id ]; }
 };
 
+template<typename T>
+T* cast( Object* obj )
+{
+    if( type_of<T>() == obj->get_type() )
+    {
+        return static_cast<T*>( obj );
+    }
+
+    return nullptr;
+}
+
 struct MyStruct : public Object
 {
     GENERATE_BODY( MyStruct )

@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "object.h"
+#include "object_pools.h"
 
 using namespace std;
 
@@ -22,17 +23,17 @@ int main( int, char** )
         }
     }
 
-    MyStruct myStruct;
-    myStruct.number1 = 42;
-    myStruct.number2 = 15;
+    init_pool<MyStruct>();
 
-    i8 new_number2 = 3;
+    auto struct_pool = get_pool<MyStruct>();
+    auto myStruct = struct_pool->Instantiate();
 
-    cout << to_string( myStruct.number1 ) << " " << to_string( myStruct.number2 ) << endl;
+    cout << myStruct->number1 << " " << to_string( myStruct->number2 ) << endl;
 
-    const auto& number2_field = myStruct.get_type()->get_field( "number2" );
-    number2_field.set<i8>( &myStruct, new_number2 );
-    cout << to_string( myStruct.number1 ) << " " << to_string( myStruct.number2 ) << endl;
+    struct_pool->Destroy( myStruct );
+    delete_pool<MyStruct>();
+
+    show_pool_report();
 
     cin.ignore();
     return 0;

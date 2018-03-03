@@ -97,3 +97,13 @@ const FieldInfo& StructInfo::get_field( const std::string& field_name ) const
 
 const TypeInfo* s_all_types[MAX_TYPE_COUNT];
 const StructInfo* s_object_types[MAX_TYPE_COUNT];
+
+const TypeInfo* get_type( u32 type_id )
+{
+    return s_all_types[ type_id ];
+}
+
+const StructInfo* get_object_type( u32 type_id )
+{
+    return s_object_types[ type_id ];
+}
