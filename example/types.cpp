@@ -77,9 +77,22 @@ static ObjectData from_struct_type( const StructInfo* struct_type )
     return data;
 }
 
-StructInfo::StructInfo( const std::string& _name, u32 _size, const StructInfo* _parent, std::vector<FieldInfo> _members )
-    : TypeInfo( _name, _size, TypeInfo_Type::STRUCT ), parent(_parent), members(_members), is_object( is_object_func(this) ), object_data( from_struct_type(this) )
+StructInfo::StructInfo( const std::string& _name, u32 _size, const StructInfo* _parent, std::vector<FieldInfo> _fields )
+    : TypeInfo( _name, _size, TypeInfo_Type::STRUCT ), parent(_parent), fields(_fields), is_object( is_object_func(this) ), object_data( from_struct_type(this) )
 {
+}
+
+const FieldInfo& StructInfo::get_field( const std::string& field_name ) const
+{
+    for(const auto& field : fields )
+    {
+        if( field.name == field_name )
+        {
+            return field;
+        }
+    }
+
+    // @Error: should err here...
 }
 
 const TypeInfo* s_all_types[MAX_TYPE_COUNT];

@@ -6,19 +6,6 @@
 
 using namespace std;
 
-void set_field( Object* obj, std::string field_name, void* new_value )
-{
-    auto* type = obj->get_type();
-    for( const auto& member : type->members )
-    {
-        if( member.name == field_name )
-        {
-            memcpy( ((char*)obj)+(member.offset), new_value, member.type->size);
-        }
-    }
-
-}
-
 int main( int, char** )
 {
     for( const auto** typePtr = &s_all_types[0]; *typePtr != nullptr; ++typePtr )
@@ -28,7 +15,7 @@ int main( int, char** )
         if( type->type == TypeInfo_Type::STRUCT )
         {
             const auto* struct_type = (StructInfo*) type;
-            for( auto member : struct_type->members )
+            for( auto member : struct_type->fields )
             {
                 cout << "\t" << member.offset << ": " << member.type->name << " " << member.name << endl;
             }
@@ -43,7 +30,8 @@ int main( int, char** )
 
     cout << to_string( myStruct.number1 ) << " " << to_string( myStruct.number2 ) << endl;
 
-    set_field( &myStruct, "number2", &new_number2 );
+    const auto& number2_field = myStruct.get_type()->get_field( "number2" );
+    number2_field.set<i8>( &myStruct, new_number2 );
     cout << to_string( myStruct.number1 ) << " " << to_string( myStruct.number2 ) << endl;
 
     cin.ignore();

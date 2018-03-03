@@ -13,6 +13,13 @@ struct ScalarInfo;
 struct FieldInfo;
 struct StructInfo;
 
+#define MAX_TYPE_COUNT 1024
+extern const TypeInfo* s_all_types[MAX_TYPE_COUNT];
+extern const StructInfo* s_object_types[MAX_TYPE_COUNT];
+template<typename T> const TypeInfo* type_of();
+// const TypeInfo* type_of( const T& obj ); // for completness, this one doesn't need to be predeclared
+
+
 enum class TypeInfo_Type
 {
     SCALAR,
@@ -64,6 +71,32 @@ struct FieldInfo
     const TypeInfo* type;
     FieldInfo_Modifier modifier;
     u32 offset;
+
+    template<typename T>
+    void set( void* obj, const T& value ) const
+    {
+        if( type_of<T>() == type )
+        {
+            u8* dest = ((u8*)obj)+offset;
+            memcpy( dest, &value, type->size );
+        }
+        // @Error: should err on else...
+    }
+
+    template<typename T>
+    T get( void* obj ) const
+    {
+        T val;
+
+        if( type_of<T>() == type )
+        {
+            u8* src = ((u8*)obj)+offset;
+            memcpy( &val, src, type->size );
+        }
+        // @Error: should err on else...
+
+        return val;
+    }
 };
 
 struct ObjectData
@@ -73,10 +106,12 @@ struct ObjectData
 
 struct StructInfo : public TypeInfo
 {
-    StructInfo( const std::string& _name, u32 _size, const StructInfo* _parent, std::vector<FieldInfo> _members );
+    StructInfo( const std::string& _name, u32 _size, const StructInfo* _parent, std::vector<FieldInfo> _fields );
+
+    const FieldInfo& get_field( const std::string& field_name ) const;
 
     const StructInfo* parent;
-    const std::vector<FieldInfo> members;
+    const std::vector<FieldInfo> fields;
     const bool is_object;
     const ObjectData object_data;
 };
@@ -88,9 +123,3 @@ struct EnumInfo : public TypeInfo
     std::map<std::string, i64> enum_values;
     const TypeInfo* underlying_type;
 };
-
-#define MAX_TYPE_COUNT 1024
-extern const TypeInfo* s_all_types[MAX_TYPE_COUNT];
-extern const StructInfo* s_object_types[MAX_TYPE_COUNT];
-template<typename T> const TypeInfo* type_of();
-// const TypeInfo* type_of( const T& obj ); // for completness, this one doesn't need to be predeclared
