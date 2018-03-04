@@ -8,7 +8,6 @@ use std::fs::read_dir;
 use std::time::Instant;
 use argparse::{ArgumentParser, StoreTrue, StoreOption, Collect, List};
 use clang::*;
-use std::collections::BTreeMap;
 use std::result::Result;
 use std::fs::File;
 use std::io::Write;
@@ -114,7 +113,7 @@ impl TypeInfo {
     }
 }
 
-fn has_object_parent( struct_info: &TypeInfoStruct, type_info_map: &BTreeMap<String, TypeInfo> ) -> bool {
+fn has_object_parent( struct_info: &TypeInfoStruct, type_info_map: &HashMap<String, &TypeInfo> ) -> bool {
     if let Some( ref parent ) = struct_info.parent {
         if parent == "Object" {
             return true;
@@ -240,7 +239,7 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, String> {
     }
 }
 
-fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, String> {
+fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, String> {
     let mut file = match File::create( "type_db.h" ) {
         Ok( file ) => file,
         Err( _ ) => return Err( "Something bad happend".to_string() ),
@@ -248,20 +247,20 @@ fn write_header( type_info_map : &BTreeMap<String, TypeInfo> ) -> Result<bool, S
 
     writeln!( file, "#pragma once\n" );
 
-    for type_info in type_info_map.values().filter( |t| t._enum.is_some() ) {
+    for type_info in type_info_vec.iter().filter( |t| t._enum.is_some() ) {
         let enum_type = type_info._enum.as_ref().unwrap();
         writeln!( file, "enum class {} : {};", type_info.name, enum_type.underlying_type );
     }
 
     writeln!( file );
 
-    for type_info in type_info_map.values().filter( |t| t._struct.is_some() ) {
+    for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() ) {
         writeln!( file, "struct {};", type_info.name );
     }
 
     write!( file, "\n" );
 
-    for type_info in type_info_map.values() {
+    for type_info in type_info_vec.iter() {
         writeln!( file, "template<> const TypeInfo* type_of<{}>();", type_info.name );
         writeln!( file, "const TypeInfo* type_of(const {}& obj);", type_info.name );
         writeln!( file );
@@ -285,7 +284,7 @@ fn build_modifier_string( field: &TypeInfoField ) -> String {
     }
 }
 
-fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, String> {
+fn write_struct_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, String> {
 
     let struct_type = type_info._struct.as_ref().unwrap();
     match struct_type.parent {
@@ -316,7 +315,7 @@ fn write_struct_implementation( type_info_map: &BTreeMap<String, TypeInfo>, file
     Ok( true )
 }
 
-fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<bool, String> {
+fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, String> {
     let mut file = match File::create( "type_db.cpp" ) {
         Ok( file ) => file,
         Err( _ ) => return Err( "Something bad happend".to_string() ),
@@ -326,7 +325,7 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
     {
         let mut includes: HashSet<&str> = [ "type_db.h", "basic_types.h" ].iter().cloned().collect();
 
-        for type_info in type_info_map.values() {
+        for type_info in type_info_vec.iter() {
             if let Some( ref source_file ) = type_info.source_file {
                 includes.insert( source_file );
             }
@@ -339,7 +338,7 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
     }
 
     // scalars
-    for type_info in type_info_map.values().filter( |t| t._scalar.is_some() ) {
+    for type_info in type_info_vec.iter().filter( |t| t._scalar.is_some() ) {
         use ScalarInfo::*;
 
         let scalar_type = type_info._scalar.as_ref().unwrap();
@@ -357,7 +356,7 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
     }
 
     // enums
-    for type_info in type_info_map.values().filter( |t| t._enum.is_some() ) {
+    for type_info in type_info_vec.iter().filter( |t| t._enum.is_some() ) {
         let enum_type = type_info._enum.as_ref().unwrap();
         writeln!( file, "static EnumInfo type_{enum_name} ( \"{enum_name}\", type_of<{underlying_type}>(), {{", enum_name=type_info.name, underlying_type=enum_type.underlying_type );
         for ( name, &(value, _) ) in &enum_type.enum_values {
@@ -371,7 +370,10 @@ fn write_implementation( type_info_map: &BTreeMap<String, TypeInfo> ) -> Result<
     }
 
     // structs
-    for type_info in type_info_map.values().filter( |t| t._struct.is_some() ) {
+    use std::iter::FromIterator;
+    let type_info_map: HashMap<String, &TypeInfo> = HashMap::from_iter(type_info_vec.iter().map(|x| (x.name.clone(), x)));
+
+    for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() ) {
         write_struct_implementation( &type_info_map, &mut file, &type_info );
     }
 
@@ -470,9 +472,9 @@ fn main() {
     let arguments = get_clang_arguments( &options.input_directories, &options.additional_include_directories );
 
 
-    let mut type_infos_map: BTreeMap<String, TypeInfo> = BTreeMap::new();
+    let mut type_info_vec: Vec<TypeInfo> = Vec::new();
     for built_in in get_built_in_types() {
-        type_infos_map.insert( built_in.name.clone(), built_in.clone() );
+        type_info_vec.push( built_in.clone() );
     }
 
     let clang = Clang::new().unwrap();
@@ -484,14 +486,14 @@ fn main() {
     
     for entity in tu.get_entity().get_children().iter().filter( |e| !e.is_in_system_header() && e.is_definition() ) {
         match from_entity( &entity ) {
-            Ok( type_info ) => { type_infos_map.insert( type_info.name.clone(), type_info ); },
+            Ok( type_info ) => { type_info_vec.push( type_info ); },
             Err( error ) => {
                 println!( "WARNING ({}): {}", get_source_file( &entity ).unwrap_or_else(|| String::from("NoFile")), error ); 
             },
         };
     }
 
-    for type_info in type_infos_map.values().filter( |x| x._struct.is_some() ) {
+    for type_info in type_info_vec.iter().filter( |x| x._struct.is_some() ) {
         print!("Type: {}", type_info.name);
         let type_struct = type_info._struct.as_ref().unwrap();
 
@@ -505,7 +507,7 @@ fn main() {
         }
     }
 
-    for type_info in type_infos_map.values().filter( |x| x._enum.is_some() ) {
+    for type_info in type_info_vec.iter().filter( |x| x._enum.is_some() ) {
         let type_enum = type_info._enum.as_ref().unwrap();
         println!("Enum: {} ({})", type_info.name, type_enum.underlying_type);
 
@@ -514,19 +516,19 @@ fn main() {
         }
     }
 
-    for type_info in type_infos_map.values().filter( |x| x._scalar.is_some() ) {
+    for type_info in type_info_vec.iter().filter( |x| x._scalar.is_some() ) {
         print!("Type: {}", type_info.name);
         let type_scalar = type_info._scalar.as_ref().unwrap();
         println!( " ({})", type_scalar.scalar_type );
     }
 
     if !options.no_output {
-        match write_header( &type_infos_map ) {
+        match write_header( &type_info_vec ) {
             Ok(_) => {},
             Err( err ) => { println!( "{}", err ); },
         }
 
-        match write_implementation( &type_infos_map ) {
+        match write_implementation( &type_info_vec ) {
             Ok(_) => {},
             Err( err ) => { println!( "{}", err ); },
         }
