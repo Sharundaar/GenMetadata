@@ -67,6 +67,21 @@ struct TypeInfoEnum {
     enum_values: HashMap<String, (i64, u64)>,
 }
 
+struct GMError(String);
+impl From<std::io::Error> for GMError {
+    fn from( e: std::io::Error ) -> GMError {
+        use std::error::Error;
+        GMError( e.description().to_string() )
+    }
+}
+
+impl Display for GMError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let &GMError( ref desc ) = self;
+        write!(f, "{}", desc)
+    }
+}
+
 impl Default for ScalarInfo {
     fn default() -> ScalarInfo { ScalarInfo::INT }
 }
@@ -84,7 +99,7 @@ impl Display for ScalarInfo {
 
 impl TypeInfo {
     fn new<S>( name: S ) -> TypeInfo where S: Into<String> {
-        TypeInfo{ name: name.into(), source_file: None, _struct: None, _field: None, _scalar: None, _enum: None }
+        TypeInfo{ name: name.into(), ..Default::default() }
     }
 
     fn make_scalar( mut self, scalar_type: ScalarInfo ) -> TypeInfo {
@@ -98,17 +113,12 @@ impl TypeInfo {
     }
 
     fn make_struct( mut self, parent: &Option<&str> ) -> TypeInfo {
-        let mut type_struct = TypeInfoStruct{ parent: None, fields: vec!() };
-        if let &Some( parent ) = parent {
-            type_struct.parent = Some( String::from( parent ) );
-        }
-        self._struct = Some(type_struct);
+        self._struct = Some( TypeInfoStruct{ parent: parent.map(|x| x.to_string()), ..Default::default() });
         self
     }
 
     fn make_enum( mut self, underlying_type: &str ) -> TypeInfo {
-        let mut type_enum = TypeInfoEnum{ underlying_type: String::from( underlying_type ), enum_values: HashMap::new() };
-        self._enum = Some(type_enum);
+        self._enum = Some( TypeInfoEnum{ underlying_type: String::from( underlying_type ), ..Default::default() } );
         self
     }
 }
@@ -145,7 +155,7 @@ fn get_source_file( entity: &Entity ) -> Option<String> {
 
 fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, String> {
     match ( entity.get_name(), entity.get_type() ) {
-        ( Some( name ), Some( type_def ) ) => {
+        ( Some( name ), Some( _ ) ) => {
             let mut type_info = TypeInfo::new( name ).make_struct( &None );
             type_info.source_file = get_source_file( entity );
 
@@ -162,7 +172,7 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, String> {
                         FieldDecl => {
                             match from_entity( &child ) {
                                 Ok( type_field ) => { type_info_struct.fields.push( type_field ); },
-                                Err( err ) => {},
+                                Err( _ ) => {},
                             }
                         },
                         _ => {}
@@ -239,31 +249,28 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, String> {
     }
 }
 
-fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, String> {
-    let mut file = match File::create( "type_db.h" ) {
-        Ok( file ) => file,
-        Err( _ ) => return Err( "Something bad happend".to_string() ),
-    };
+fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, GMError> {
+    let mut file = File::create( "type_db.h" )?;
 
-    writeln!( file, "#pragma once\n" );
+    writeln!( file, "#pragma once\n" )?;
 
     for type_info in type_info_vec.iter().filter( |t| t._enum.is_some() ) {
         let enum_type = type_info._enum.as_ref().unwrap();
-        writeln!( file, "enum class {} : {};", type_info.name, enum_type.underlying_type );
+        writeln!( file, "enum class {} : {};", type_info.name, enum_type.underlying_type )?;
     }
 
-    writeln!( file );
+    writeln!( file )?;
 
     for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() ) {
-        writeln!( file, "struct {};", type_info.name );
+        writeln!( file, "struct {};", type_info.name )?;
     }
 
-    write!( file, "\n" );
+    write!( file, "\n" )?;
 
     for type_info in type_info_vec.iter() {
-        writeln!( file, "template<> const TypeInfo* type_of<{}>();", type_info.name );
-        writeln!( file, "const TypeInfo* type_of(const {}& obj);", type_info.name );
-        writeln!( file );
+        writeln!( file, "template<> const TypeInfo* type_of<{}>();", type_info.name )?;
+        writeln!( file, "const TypeInfo* type_of(const {}& obj);", type_info.name )?;
+        writeln!( file )?;
     }
 
     Ok( true )
@@ -284,42 +291,39 @@ fn build_modifier_string( field: &TypeInfoField ) -> String {
     }
 }
 
-fn write_struct_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, String> {
+fn write_struct_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, GMError> {
 
     let struct_type = type_info._struct.as_ref().unwrap();
     match struct_type.parent {
-        Some( ref parent ) => writeln!( file, "static StructInfo type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), static_cast<const StructInfo*>( type_of<{parent_name}>() ), {{", struct_name = type_info.name, parent_name = parent ),
-        None => writeln!( file, "static StructInfo type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), nullptr, std::vector<FieldInfo> {{", struct_name = type_info.name ),
+        Some( ref parent ) => writeln!( file, "static StructInfo type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), static_cast<const StructInfo*>( type_of<{parent_name}>() ), {{", struct_name = type_info.name, parent_name = parent )?,
+        None => writeln!( file, "static StructInfo type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), nullptr, std::vector<FieldInfo> {{", struct_name = type_info.name )?,
     };
 
     for field in &struct_type.fields {
         let type_field = field._field.as_ref().unwrap();
         let field_name = &type_field.field_name;
         if type_info_map.get( &field.name ).is_some() {
-            writeln!( file, "    FieldInfo( \"{field_name}\", type_of<{field_type}>(), {modifier}, {offset} ),", field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset );
+            writeln!( file, "    FieldInfo( \"{field_name}\", type_of<{field_type}>(), {modifier}, {offset} ),", field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
         }
     }
 
-    writeln!( file, "}} );" );
-    writeln!( file, "template<> const TypeInfo* type_of<{struct_name}>() {{ return static_cast<TypeInfo*>( &type_{struct_name} ); }}", struct_name = type_info.name );
+    writeln!( file, "}} );" )?;
+    writeln!( file, "template<> const TypeInfo* type_of<{struct_name}>() {{ return static_cast<TypeInfo*>( &type_{struct_name} ); }}", struct_name = type_info.name )?;
 
     // Write constructors if needed
     if has_object_parent( struct_type, type_info_map ) {
         let parent = struct_type.parent.as_ref().unwrap();
-        writeln!( file, "{struct_name}::{struct_name}() : {parent_name}( type_{struct_name}.object_data.object_id ) {{}}", struct_name = type_info.name, parent_name = parent );
-        writeln!( file, "{struct_name}::{struct_name}( u32 _type_id ) : {parent_name}( _type_id ) {{}}", struct_name = type_info.name, parent_name = parent );
+        writeln!( file, "{struct_name}::{struct_name}() : {parent_name}( type_{struct_name}.object_data.object_id ) {{}}", struct_name = type_info.name, parent_name = parent )?;
+        writeln!( file, "{struct_name}::{struct_name}( u32 _type_id ) : {parent_name}( _type_id ) {{}}", struct_name = type_info.name, parent_name = parent )?;
     }
 
-    writeln!( file );
+    writeln!( file )?;
 
     Ok( true )
 }
 
-fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, String> {
-    let mut file = match File::create( "type_db.cpp" ) {
-        Ok( file ) => file,
-        Err( _ ) => return Err( "Something bad happend".to_string() ),
-    };
+fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError> {
+    let mut file = File::create( "type_db.cpp" )?;
 
     // includes
     {
@@ -332,9 +336,9 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, String>
         }
 
         for include in includes.iter() {
-            writeln!( file, "#include \"{}\"", include );
+            writeln!( file, "#include \"{}\"", include )?;
         }
-        writeln!( file, "" );
+        writeln!( file, "" )?;
     }
 
     // scalars
@@ -349,24 +353,24 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, String>
             UINT => "UINT",
             FLOAT => "FLOAT",
         };
-        writeln!( file, "static ScalarInfo type_{scalar_name} ( sizeof( {scalar_name} ), ScalarInfo_Type::{scalar_type} );", scalar_name = scalar_name, scalar_type = scalar_type_name );
-        writeln!( file, "template<> const TypeInfo* type_of<{scalar_name}>() {{ return &type_{scalar_name}; }}", scalar_name = scalar_name );
-        writeln!( file, "const TypeInfo* type_of( const {scalar_name}& obj ) {{ return &type_{scalar_name}; }}", scalar_name = scalar_name );
-        writeln!( file );
+        writeln!( file, "static ScalarInfo type_{scalar_name} ( sizeof( {scalar_name} ), ScalarInfo_Type::{scalar_type} );", scalar_name = scalar_name, scalar_type = scalar_type_name )?;
+        writeln!( file, "template<> const TypeInfo* type_of<{scalar_name}>() {{ return &type_{scalar_name}; }}", scalar_name = scalar_name )?;
+        writeln!( file, "const TypeInfo* type_of( const {scalar_name}& obj ) {{ return &type_{scalar_name}; }}", scalar_name = scalar_name )?;
+        writeln!( file )?;
     }
 
     // enums
     for type_info in type_info_vec.iter().filter( |t| t._enum.is_some() ) {
         let enum_type = type_info._enum.as_ref().unwrap();
-        writeln!( file, "static EnumInfo type_{enum_name} ( \"{enum_name}\", type_of<{underlying_type}>(), {{", enum_name=type_info.name, underlying_type=enum_type.underlying_type );
+        writeln!( file, "static EnumInfo type_{enum_name} ( \"{enum_name}\", type_of<{underlying_type}>(), {{", enum_name=type_info.name, underlying_type=enum_type.underlying_type )?;
         for ( name, &(value, _) ) in &enum_type.enum_values {
-            writeln!( file, "    {{ \"{}\", {} }},", name, value );
+            writeln!( file, "    {{ \"{}\", {} }},", name, value )?;
         }
-        writeln!( file, "}} );" );
+        writeln!( file, "}} );" )?;
 
-        writeln!(file, "template<> const TypeInfo* type_of<{enum_name}>() {{ return &type_{enum_name}; }}", enum_name=type_info.name );
-        writeln!(file, "const TypeInfo* type_of( const {enum_name}& obj ) {{ return &type_{enum_name}; }}", enum_name=type_info.name );
-        writeln!( file );
+        writeln!(file, "template<> const TypeInfo* type_of<{enum_name}>() {{ return &type_{enum_name}; }}", enum_name=type_info.name )?;
+        writeln!(file, "const TypeInfo* type_of( const {enum_name}& obj ) {{ return &type_{enum_name}; }}", enum_name=type_info.name )?;
+        writeln!( file )?;
     }
 
     // structs
@@ -374,7 +378,7 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, String>
     let type_info_map: HashMap<String, &TypeInfo> = HashMap::from_iter(type_info_vec.iter().map(|x| (x.name.clone(), x)));
 
     for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() ) {
-        write_struct_implementation( &type_info_map, &mut file, &type_info );
+        write_struct_implementation( &type_info_map, &mut file, &type_info )?;
     }
 
 
@@ -511,7 +515,7 @@ fn main() {
         let type_enum = type_info._enum.as_ref().unwrap();
         println!("Enum: {} ({})", type_info.name, type_enum.underlying_type);
 
-        for (name, &(ival, uval)) in &type_enum.enum_values {
+        for (name, &(_, uval)) in &type_enum.enum_values {
             println!("    {}: {}", name, uval);
         }
     }
