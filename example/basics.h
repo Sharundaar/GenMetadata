@@ -24,7 +24,6 @@ template<> void format<float>  (std::string& out, const float& val);
 template<> void format<double> (std::string& out, const double& val);
 template<> void format<short>  (std::string& out, const short& val);
 template<> void format<long>   (std::string& out, const long& val);
-template<> void format<size_t> (std::string& out, const size_t& val);
 
 template<> void format<unsigned int>   (std::string& out, const unsigned int  & val);
 template<> void format<unsigned long>  (std::string& out, const unsigned long & val);

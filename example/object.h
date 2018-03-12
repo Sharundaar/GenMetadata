@@ -26,12 +26,3 @@ T* cast( Object* obj )
 
     return nullptr;
 }
-
-struct MyStruct : public Object
-{
-    GENERATE_BODY( MyStruct )
-
-    u32 number1;
-    i8  number2;
-    std::vector<i32> some_array;
-};

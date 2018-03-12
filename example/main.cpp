@@ -4,6 +4,7 @@
 
 #include "object.h"
 #include "object_pools.h"
+#include "test.h"
 
 using namespace std;
 

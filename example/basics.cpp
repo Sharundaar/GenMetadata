@@ -73,11 +73,6 @@ template<> void format<short>(string& out, const short& val)
     out += move(to_string(val));
 }
 
-template<> void format<size_t> (string& out, const size_t& val)
-{
-    out += move(to_string(val));
-}
-
 template<> void format<unsigned long> (string& out, const unsigned long& val)
 {
     out += move(to_string(val));

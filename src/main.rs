@@ -250,6 +250,9 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, String> {
 }
 
 fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, GMError> {
+    use std::iter::FromIterator;
+    let type_info_map: HashMap<String, &TypeInfo> = HashMap::from_iter(type_info_vec.iter().map(|x| (x.name.clone(), x)));
+
     let mut file = File::create( "type_db.h" )?;
 
     writeln!( file, "#pragma once\n" )?;
@@ -260,10 +263,22 @@ fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, GMError> {
     }
 
     writeln!( file )?;
-
+    
     for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() ) {
         writeln!( file, "struct {};", type_info.name )?;
     }
+
+    writeln!( file )?;
+
+    writeln!( file, "enum class ObjectTypeId" )?;
+    writeln!( file, "{{" )?;
+    writeln!( file, "    Object," )?;
+    for type_info in type_info_vec.iter()
+                    .filter( |t| t._struct.is_some() )
+                    .filter( |t| has_object_parent( t._struct.as_ref().unwrap(), &type_info_map ) ) {
+        writeln!( file, "    {},", type_info.name )?;
+    }
+    writeln!( file, "}};" )?;
 
     write!( file, "\n" )?;
 
