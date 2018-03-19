@@ -31,6 +31,7 @@ struct TypeInfo {
     _field:      Option<TypeInfoField>,
     _scalar:     Option<TypeInfoScalar>,
     _enum:       Option<TypeInfoEnum>,
+    _func:       Option<TypeInfoFunc>,
 }
 
 #[derive(Clone, Default)]
@@ -67,17 +68,23 @@ struct TypeInfoEnum {
     enum_values: HashMap<String, (i64, u64)>,
 }
 
+#[derive(Clone, Default)]
+struct TypeInfoFunc {
+}
+
 enum GMErrorKind {
     GENERIC,
     IO,
 }
 
+#[allow(dead_code)]
 enum GMErrorGravity {
     INFO,
     WARNING,
     ERROR,
 }
 
+#[allow(dead_code)]
 struct GMError {
     gravity: GMErrorGravity,
     kind: GMErrorKind,
@@ -85,10 +92,12 @@ struct GMError {
 }
 
 impl GMError {
+    #[allow(dead_code)]
     fn new( gravity: GMErrorGravity, kind: GMErrorKind, description: String ) -> GMError {
         GMError{ gravity: gravity, kind: kind, description: description }
     }
 
+    #[allow(dead_code)]
     fn warning( description: String ) -> GMError {
         GMError{ gravity: GMErrorGravity::WARNING, kind: GMErrorKind::GENERIC, description: description }
     }
@@ -161,6 +170,11 @@ impl TypeInfo {
 
     fn make_enum( mut self, underlying_type: &str ) -> TypeInfo {
         self._enum = Some( TypeInfoEnum{ underlying_type: String::from( underlying_type ), ..Default::default() } );
+        self
+    }
+
+    fn make_func( mut self ) -> TypeInfo {
+        self._func = Some( TypeInfoFunc{ } );
         self
     }
 }
@@ -286,12 +300,14 @@ fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
 
 fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError>
 {
-    /*
-    match ( entity.get_name(), entity.get_type() ) {
-        ( )
-    }*/
+    if let Some( _ ) = entity.get_template() { return Err( GMError::info( "we don't handle template func.".to_string() ) ); }
 
-    Err( GMError::info( "funcdecl unimplemented.".to_string() ) )
+    match ( entity.get_name(), entity.get_type() ) {
+        ( Some( name ), Some( _ ) ) => Ok( TypeInfo::new( name ).make_func() ),
+        _ => Err( GMError::info( "Missing name or type for func decl.".to_string() ) )
+    }
+
+    // Err( GMError::info( "funcdecl unimplemented.".to_string() ) )
 }
 
 fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
@@ -338,6 +354,7 @@ fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, GMError> {
     write!( file, "\n" )?;
 
     for type_info in type_info_vec.iter() {
+        if type_info._func.is_some() { continue; }
         writeln!( file, "template<> const TypeInfo* type_of<{}>();", type_info.name )?;
         writeln!( file, "const TypeInfo* type_of(const {}& obj);", type_info.name )?;
         writeln!( file )?;
@@ -462,7 +479,8 @@ fn generate_main_file( file_list: &Vec<PathBuf>) -> Result<(), String> {
         Err( err ) => return Err( err.to_string() ),
     };
 
-    for ref file_name in file_list {
+    let type_db_file = Some( std::ffi::OsStr::new("type_db.h") );
+    for ref file_name in file_list.iter().filter( |n| n.file_name() != type_db_file ) {
         match writeln!( file, "#include \"{}\"", file_name.file_name().unwrap().to_string_lossy() ) {
             Ok(_) => {},
             Err( err ) => return Err( err.to_string() ),
@@ -594,6 +612,10 @@ fn main() {
         print!("Type: {}", type_info.name);
         let type_scalar = type_info._scalar.as_ref().unwrap();
         println!( " ({})", type_scalar.scalar_type );
+    }
+
+    for type_info in type_info_vec.iter().filter( |x| x._func.is_some() ) {
+        println!( "Func: {}", type_info.name );
     }
 
     if !options.no_output {
