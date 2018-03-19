@@ -67,18 +67,60 @@ struct TypeInfoEnum {
     enum_values: HashMap<String, (i64, u64)>,
 }
 
-struct GMError(String);
+enum GMErrorKind {
+    GENERIC,
+    IO,
+}
+
+enum GMErrorGravity {
+    INFO,
+    WARNING,
+    ERROR,
+}
+
+struct GMError {
+    gravity: GMErrorGravity,
+    kind: GMErrorKind,
+    description: String,
+}
+
+impl GMError {
+    fn new( gravity: GMErrorGravity, kind: GMErrorKind, description: String ) -> GMError {
+        GMError{ gravity: gravity, kind: kind, description: description }
+    }
+
+    fn warning( description: String ) -> GMError {
+        GMError{ gravity: GMErrorGravity::WARNING, kind: GMErrorKind::GENERIC, description: description }
+    }
+
+    fn error( description: String ) -> GMError {
+        GMError{ gravity: GMErrorGravity::ERROR, kind: GMErrorKind::GENERIC, description: description }
+    }
+
+    fn info( description: String ) -> GMError {
+        GMError{ gravity: GMErrorGravity::INFO, kind: GMErrorKind::GENERIC, description: description }
+    }
+}
+
 impl From<std::io::Error> for GMError {
     fn from( e: std::io::Error ) -> GMError {
         use std::error::Error;
-        GMError( e.description().to_string() )
+        GMError{ gravity: GMErrorGravity::ERROR, kind: GMErrorKind::IO, description: e.description().to_string() }
     }
 }
 
 impl Display for GMError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let &GMError( ref desc ) = self;
-        write!(f, "{}", desc)
+        // use GMErrorKind::*;
+        use GMErrorGravity::*;
+
+        match self.gravity {
+            INFO => write!(f, "INFO: "),
+            WARNING => write!(f, "WARNING: "),
+            ERROR => write!(f, "ERROR: "),
+        }?;
+
+        write!(f, "{}", self.description)
     }
 }
 
@@ -153,7 +195,8 @@ fn get_source_file( entity: &Entity ) -> Option<String> {
     }
 }
 
-fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, String> {
+fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
+    if !entity.is_definition() { return Err( GMError::info( "not definition".to_string() ) ); }
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( _ ) ) => {
             let mut type_info = TypeInfo::new( name ).make_struct( &None );
@@ -183,13 +226,13 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, String> {
             let type_info = type_info;
             Ok( type_info )
         },
-        ( None, Some(_) ) => Err( "Couldn't generate a TypeInfo from this StructDecl (missing name).".to_string() ),
-        ( Some(_), None ) => Err( "Couldn't generate a TypeInfo from this StructDecl (missing type).".to_string() ),
-        ( None, None ) => Err( "Couldn't generate a TypeInfo from this StructDecl.".to_string() ),
+        ( None, Some(_) ) => Err( GMError::error( "Couldn't generate a TypeInfo from this StructDecl (missing name).".to_string() ) ),
+        ( Some(_), None ) => Err( GMError::error( "Couldn't generate a TypeInfo from this StructDecl (missing type).".to_string() ) ),
+        ( None, None ) => Err( GMError::error( "Couldn't generate a TypeInfo from this StructDecl.".to_string() ) ),
     }
 }
 
-fn from_entity_fielddecl( entity: &Entity, parent_type: &Type ) -> Result<TypeInfo, String> {
+fn from_entity_fielddecl( entity: &Entity, parent_type: &Type ) -> Result<TypeInfo, GMError> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
             let mut type_info = TypeInfo::new( type_def.get_display_name().replace( "const", "" ).replace("*", "").trim() ).make_field( &name, ( parent_type.get_offsetof( &name ).unwrap() as u32 ) / 8 );
@@ -215,11 +258,12 @@ fn from_entity_fielddecl( entity: &Entity, parent_type: &Type ) -> Result<TypeIn
             let type_info = type_info;
             Ok( type_info )
         },
-        _ => Err( "Couldn't generate Field from this FieldDecl.".to_string() ),
+        _ => Err( GMError::error( "Couldn't generate Field from this FieldDecl.".to_string() ) ),
     }
 }
 
-fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, String> {
+fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
+    if !entity.is_definition() { return Err( GMError::info( "not definition".to_string() ) ); }
     match ( entity.is_scoped(), entity.get_type() ) {
         ( true, Some( type_def ) ) => {
             let mut type_info = TypeInfo::new( type_def.get_display_name() ).make_enum( &entity.get_enum_underlying_type().unwrap().get_display_name() );
@@ -235,17 +279,28 @@ fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, String> {
             let type_info = type_info;
             Ok( type_info )
         },
-        ( false, Some( type_def ) ) => Err( format!("Enum {} is unscoped, can't generate TypeInfo for unscoped enums.", type_def.get_display_name() ) ),
-        _ => Err( "Couldn't generate TypeInfo from this EnumDecl.".to_string() ),
+        ( false, Some( type_def ) ) => Err( GMError::error( format!("Enum {} is unscoped, can't generate TypeInfo for unscoped enums.", type_def.get_display_name() ) ) ),
+        _ => Err( GMError::error( "Couldn't generate TypeInfo from this EnumDecl.".to_string() ) ),
     }
 }
 
-fn from_entity( entity: &Entity ) -> Result<TypeInfo, String> {
+fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError>
+{
+    /*
+    match ( entity.get_name(), entity.get_type() ) {
+        ( )
+    }*/
+
+    Err( GMError::info( "funcdecl unimplemented.".to_string() ) )
+}
+
+fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
     match entity.get_kind() {
         EntityKind::StructDecl => from_entity_structdecl( entity ),
         EntityKind::FieldDecl  => from_entity_fielddecl( entity, &entity.get_semantic_parent().unwrap().get_type().unwrap() ), // should be ok for a field decl... haven't found a better way to pass this...
         EntityKind::EnumDecl   => from_entity_enumdecl( entity ),
-        kind => Err( format!( "Unhandled entity kind: {:?}", kind) ),
+        EntityKind::FunctionDecl => from_entity_funcdecl( entity ),
+        kind => Err( GMError::info( format!( "Unhandled entity kind: {:?}", kind) ) ),
     }
 }
 
@@ -503,11 +558,11 @@ fn main() {
                 .arguments( &arguments )
                 .parse().unwrap();
     
-    for entity in tu.get_entity().get_children().iter().filter( |e| !e.is_in_system_header() && e.is_definition() ) {
+    for entity in tu.get_entity().get_children().iter().filter( |e| !e.is_in_system_header() ) {
         match from_entity( &entity ) {
             Ok( type_info ) => { type_info_vec.push( type_info ); },
             Err( error ) => {
-                println!( "WARNING ({}): {}", get_source_file( &entity ).unwrap_or_else(|| String::from("NoFile")), error ); 
+                println!( "({}): {}", get_source_file( &entity ).unwrap_or_else(|| String::from("NoFile")), error ); 
             },
         };
     }
