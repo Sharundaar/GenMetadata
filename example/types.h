@@ -63,6 +63,8 @@ enum class FieldInfo_Modifier
     CONSTANT  = 1 << 1,
     POINTER   = 1 << 2,
     REFERENCE = 1 << 3,
+    VECTOR    = 1 << 4,
+    ARRAY     = 1 << 5,
 };
 
 struct FieldInfo
@@ -107,11 +109,13 @@ enum class FuncParameter_Modifier
     CONSTANT  = 1 << 0,
     POINTER   = 1 << 1,
     REFERENCE = 1 << 2,
+    VECTOR    = 1 << 3,
+    ARRAY     = 1 << 4,
 };
 
 struct FuncParameter
 {
-    FuncParameter( const std::string _name, const TypeInfo* _type, FuncParameter_Modifier _modifier );
+    FuncParameter( const std::string& _name, const TypeInfo* _type, FuncParameter_Modifier _modifiers );
 
     std::string name;
     const TypeInfo* type;
@@ -124,7 +128,7 @@ struct FuncInfo
 
     std::string name;
     const TypeInfo* return_type;
-    const std::vector<FieldInfo> parameters;
+    const std::vector<FuncParameter> parameters;
 };
 
 struct ObjectData

@@ -108,12 +108,12 @@ const StructInfo* get_object_type( u32 type_id )
     return s_object_types[ type_id ];
 }
 
-FuncParameter( const std::string _name, const TypeInfo* _type, FuncParameter_Modifier _modifier )
-    : name(_name), type(_type), modifier(_modifier)
+FuncParameter::FuncParameter( const std::string& _name, const TypeInfo* _type, FuncParameter_Modifier _modifiers )
+    : name(_name), type(_type), modifiers(_modifiers)
 {
 }
 
-FuncInfo( const std::string& _name, const TypeInfo* _return_type, const std::vector<FuncParameter>& _parameters )
+FuncInfo::FuncInfo( const std::string& _name, const TypeInfo* _return_type, const std::vector<FuncParameter>& _parameters )
     : name(_name), return_type(_return_type), parameters( _parameters )
 {
 }

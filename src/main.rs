@@ -32,7 +32,6 @@ struct TypeInfo {
     _scalar:     Option<TypeInfoScalar>,
     _enum:       Option<TypeInfoEnum>,
     _func:       Option<TypeInfoFunc>,
-    _param:      Option<TypeInfoParam>,
 }
 
 #[derive(Clone, Default)]
@@ -45,17 +44,10 @@ struct TypeInfoStruct {
 #[derive(Clone, Default)]
 struct TypeInfoField {
     field_name: String,
+    templates: Option<Vec<TypeInfo>>,
     offset: u32,
     is_const: bool,
     is_private: bool,
-    is_ptr: bool,
-    is_ref: bool,
-}
-
-#[derive(Clone, Default)]
-struct TypeInfoParam {
-    param_name: String,
-    is_const: bool,
     is_ptr: bool,
     is_ref: bool,
 }
@@ -189,11 +181,6 @@ impl TypeInfo {
         self._func = Some( TypeInfoFunc{ return_type: return_type, ..Default::default() } );
         self
     }
-
-    fn make_param( mut self, param_name: &str ) -> TypeInfo {
-        self._param = Some( TypeInfoParam{ param_name: String::from( param_name ), ..Default::default() } );
-        self
-    }
 }
 
 fn has_object_parent( struct_info: &TypeInfoStruct, type_info_map: &HashMap<String, &TypeInfo> ) -> bool {
@@ -270,27 +257,43 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
     }
 }
 
-fn from_entity_fielddecl( entity: &Entity, parent_type: &Type ) -> Result<TypeInfo, GMError> {
+fn from_entity_fielddecl( entity: &Entity, parent_type: Option<&Type> ) -> Result<TypeInfo, GMError> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
-            let mut type_info = TypeInfo::new( type_def.get_display_name().replace( "const", "" ).replace("*", "").trim() ).make_field( &name, ( parent_type.get_offsetof( &name ).unwrap() as u32 ) / 8 );
+            // type name filled in later
+            let mut type_info = TypeInfo::new( "" ).make_field( &name, if let Some(parent_type) = parent_type { ( parent_type.get_offsetof( &name ).unwrap() as u32 ) / 8 } else { 0 } );
             {
                 let mut field_info = type_info._field.as_mut().unwrap();
 
-                use Accessibility::*;
-                match entity.get_accessibility().unwrap() {
-                    Private | Protected => field_info.is_private = true,
-                    Public              => field_info.is_private = false,
+                if let Some(accessibility) = entity.get_accessibility() {
+                    use Accessibility::*;
+                    match accessibility {
+                        Private | Protected => field_info.is_private = true,
+                        Public              => field_info.is_private = false,
+                    }
                 }
 
                 field_info.is_const = type_def.is_const_qualified();
 
                 use TypeKind::*;
                 match type_def.get_kind() {
-                    Pointer => {
-                        field_info.is_ptr = true;
+                    Pointer => { 
+                        field_info.is_ptr = true; 
+                        let pointee_type = type_def.get_pointee_type().unwrap();
+                        if pointee_type.get_kind() == Pointer {
+                            return Err( GMError::error( "Unable to parse double pointer types. (eg. int**, int&* and others)".to_string() ) );
+                        }
+                        type_info.name = pointee_type.get_display_name().replace( "const", "" ).trim().to_string();
                     },
-                    _ => {},
+                    LValueReference => { 
+                        field_info.is_ref = true;
+                        let pointee_type = type_def.get_pointee_type().unwrap();
+                        if pointee_type.get_kind() == Pointer {
+                            return Err( GMError::error( "Unable to parse double ref types. (eg. int*&)".to_string() ) );
+                        }
+                        type_info.name = pointee_type.get_display_name().replace( "const", "" ).trim().to_string();
+                    },
+                    _ => { type_info.name = type_def.get_display_name().replace("const", "").trim().to_string() },
                 }
             }
             let type_info = type_info;
@@ -349,38 +352,14 @@ fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
     }
 }
 
-fn from_entity_paramdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
-    match( entity.get_name(), entity.get_type() ) {
-        ( Some( name ), Some( type_def ) ) => {
-            let mut type_info = TypeInfo::new( type_def.get_display_name() ).make_param( &name );
-            type_info.source_file = get_source_file( entity );
-            {
-                let mut type_param = type_info._param.as_mut().unwrap();
-                type_param.is_const = type_def.is_const_qualified();
-
-                use TypeKind::*;
-                match type_def.get_kind() {
-                    Pointer => {
-                        type_param.is_ptr = true;
-                    },
-                    _ => {},
-                }
-            }
-
-            Ok( type_info )
-        },
-        _ => Err( GMError::info( "Missing name or type for func param decl.".to_string() ) )
-    }
-}
-
 fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
     match entity.get_kind() {
         EntityKind::StructDecl   => from_entity_structdecl( entity ),
         EntityKind::ClassDecl    => from_entity_structdecl( entity ),
-        EntityKind::FieldDecl    => from_entity_fielddecl( entity, &entity.get_semantic_parent().unwrap().get_type().unwrap() ), // should be ok for a field decl... haven't found a better way to pass this...
+        EntityKind::FieldDecl    => from_entity_fielddecl( entity, Some( &entity.get_semantic_parent().unwrap().get_type().unwrap() ) ), // should be ok for a field decl... haven't found a better way to pass this...
         EntityKind::EnumDecl     => from_entity_enumdecl( entity ),
         EntityKind::FunctionDecl => from_entity_funcdecl( entity ),
-        EntityKind::ParmDecl     => from_entity_paramdecl( entity ),
+        EntityKind::ParmDecl     => from_entity_fielddecl( entity, None ),
         EntityKind::Method       => from_entity_funcdecl( entity ),
         kind => Err( GMError::info( format!( "Unhandled entity kind: {:?}", kind) ) ),
     }
@@ -559,6 +538,7 @@ fn generate_main_file( file_list: &Vec<PathBuf>) -> Result<(), String> {
 fn get_built_in_types() -> Vec<TypeInfo> {
     use ScalarInfo::*;
     let built_ins: Vec<TypeInfo> = vec![
+        TypeInfo::new("char").make_scalar(UINT),
         TypeInfo::new("i8").make_scalar(INT),
         TypeInfo::new("i16").make_scalar(INT),
         TypeInfo::new("i32").make_scalar(INT),
@@ -665,10 +645,9 @@ fn main() {
         }
         for function in &type_struct.functions {
             let func_type = function._func.as_ref().unwrap();
-            use std::ops::Deref;
             println!("    {} {}({})", func_type.return_type.as_ref().unwrap_or(&"void".to_string()),
                                       function.name, 
-                                      func_type.parameters.iter().map( |p| format!("{} {}", p.name, p._param.as_ref().unwrap().param_name ) )
+                                      func_type.parameters.iter().map( |p| format!("{} {}", p.name, p._field.as_ref().unwrap().field_name ) )
                                                                  .collect::<Vec<String>>().join(", "));
         }
     }
@@ -693,7 +672,7 @@ fn main() {
         print!( "Func: {} {} (", func_type.return_type.as_ref().unwrap_or(&"void".to_string()), type_info.name );
         let mut counter = 0;
         for param in func_type.parameters.iter() {
-            let param_type = param._param.as_ref().unwrap();
+            let param_type = param._field.as_ref().unwrap();
             if param_type.is_const {
                 print!("const ");
             }
@@ -701,7 +680,7 @@ fn main() {
             if param_type.is_ptr {
                 print!("*");
             }
-            print!(" {}", param_type.param_name);
+            print!(" {}", param_type.field_name);
 
             counter = counter + 1;
             if counter < func_type.parameters.len() {
