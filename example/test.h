@@ -20,6 +20,14 @@ struct MyStruct2 : public Object
     MyStruct myStruct;
 };
 
+class PhysicSystem
+{
+    int some_data;
+    void update( const std::vector<MyStruct>& structs, const std::vector<MyStruct2>& structs2 );
+};
+
 void sys_physic( std::vector<MyStruct> my_structs );
 void sys_graphic( std::vector<MyStruct2> my_structs );
 void sys_gameplay( std::vector<MyStruct> my_structs, std::vector<MyStruct2> my_structs_2 );
+
+bool test_function( int param1, float param2 );

@@ -32,11 +32,13 @@ struct TypeInfo {
     _scalar:     Option<TypeInfoScalar>,
     _enum:       Option<TypeInfoEnum>,
     _func:       Option<TypeInfoFunc>,
+    _param:      Option<TypeInfoParam>,
 }
 
 #[derive(Clone, Default)]
 struct TypeInfoStruct {
     fields: Vec<TypeInfo>,
+    functions: Vec<TypeInfo>,
     parent: Option<String>,
 }
 
@@ -46,6 +48,14 @@ struct TypeInfoField {
     offset: u32,
     is_const: bool,
     is_private: bool,
+    is_ptr: bool,
+    is_ref: bool,
+}
+
+#[derive(Clone, Default)]
+struct TypeInfoParam {
+    param_name: String,
+    is_const: bool,
     is_ptr: bool,
     is_ref: bool,
 }
@@ -70,6 +80,8 @@ struct TypeInfoEnum {
 
 #[derive(Clone, Default)]
 struct TypeInfoFunc {
+    return_type: Option<String>,
+    parameters: Vec<TypeInfo>,
 }
 
 enum GMErrorKind {
@@ -173,8 +185,13 @@ impl TypeInfo {
         self
     }
 
-    fn make_func( mut self ) -> TypeInfo {
-        self._func = Some( TypeInfoFunc{ } );
+    fn make_func( mut self, return_type: Option<String> ) -> TypeInfo {
+        self._func = Some( TypeInfoFunc{ return_type: return_type, ..Default::default() } );
+        self
+    }
+
+    fn make_param( mut self, param_name: &str ) -> TypeInfo {
+        self._param = Some( TypeInfoParam{ param_name: String::from( param_name ), ..Default::default() } );
         self
     }
 }
@@ -229,9 +246,16 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
                         FieldDecl => {
                             match from_entity( &child ) {
                                 Ok( type_field ) => { type_info_struct.fields.push( type_field ); },
+                                Err( err ) => { println!( "{}", err )},
+                            }
+                        },
+                        Method => {
+                            match from_entity( &child ) {
+                                Ok( type_function ) => { type_info_struct.functions.push( type_function ); },
                                 Err( _ ) => {},
                             }
                         },
+                        // kind => { println!( "Unhandled entity kind in struct: {:?}", kind ); }
                         _ => {}
                     }
                 }
@@ -298,24 +322,66 @@ fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
     }
 }
 
-fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError>
-{
+fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
     if let Some( _ ) = entity.get_template() { return Err( GMError::info( "we don't handle template func.".to_string() ) ); }
 
     match ( entity.get_name(), entity.get_type() ) {
-        ( Some( name ), Some( _ ) ) => Ok( TypeInfo::new( name ).make_func() ),
+        ( Some( name ), Some( ent_type ) ) => {
+            let return_type_string = ent_type.get_result_type().unwrap().get_display_name();
+            let mut return_type: Option<String> = None;
+            if return_type_string != "void" {
+                return_type = Some( return_type_string );
+            }
+            let mut type_info = TypeInfo::new( name ).make_func( return_type );
+            type_info.source_file = get_source_file( entity );
+            {
+                let mut type_func = type_info._func.as_mut().unwrap();
+                for child in entity.get_children().iter().filter( |x| x.get_kind() == EntityKind::ParmDecl ) {
+                    match from_entity( child ) {
+                        Ok( param_type ) => type_func.parameters.push( param_type ),
+                        Err( _ ) => {}
+                    };
+                }
+            }
+            Ok( type_info )
+        }
         _ => Err( GMError::info( "Missing name or type for func decl.".to_string() ) )
     }
+}
 
-    // Err( GMError::info( "funcdecl unimplemented.".to_string() ) )
+fn from_entity_paramdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
+    match( entity.get_name(), entity.get_type() ) {
+        ( Some( name ), Some( type_def ) ) => {
+            let mut type_info = TypeInfo::new( type_def.get_display_name() ).make_param( &name );
+            type_info.source_file = get_source_file( entity );
+            {
+                let mut type_param = type_info._param.as_mut().unwrap();
+                type_param.is_const = type_def.is_const_qualified();
+
+                use TypeKind::*;
+                match type_def.get_kind() {
+                    Pointer => {
+                        type_param.is_ptr = true;
+                    },
+                    _ => {},
+                }
+            }
+
+            Ok( type_info )
+        },
+        _ => Err( GMError::info( "Missing name or type for func param decl.".to_string() ) )
+    }
 }
 
 fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
     match entity.get_kind() {
-        EntityKind::StructDecl => from_entity_structdecl( entity ),
-        EntityKind::FieldDecl  => from_entity_fielddecl( entity, &entity.get_semantic_parent().unwrap().get_type().unwrap() ), // should be ok for a field decl... haven't found a better way to pass this...
-        EntityKind::EnumDecl   => from_entity_enumdecl( entity ),
+        EntityKind::StructDecl   => from_entity_structdecl( entity ),
+        EntityKind::ClassDecl    => from_entity_structdecl( entity ),
+        EntityKind::FieldDecl    => from_entity_fielddecl( entity, &entity.get_semantic_parent().unwrap().get_type().unwrap() ), // should be ok for a field decl... haven't found a better way to pass this...
+        EntityKind::EnumDecl     => from_entity_enumdecl( entity ),
         EntityKind::FunctionDecl => from_entity_funcdecl( entity ),
+        EntityKind::ParmDecl     => from_entity_paramdecl( entity ),
+        EntityKind::Method       => from_entity_funcdecl( entity ),
         kind => Err( GMError::info( format!( "Unhandled entity kind: {:?}", kind) ) ),
     }
 }
@@ -597,6 +663,14 @@ fn main() {
         for field in &type_struct.fields {
             println!("    {}: {} ({})", field._field.as_ref().unwrap().offset, field._field.as_ref().unwrap().field_name, field.name);
         }
+        for function in &type_struct.functions {
+            let func_type = function._func.as_ref().unwrap();
+            use std::ops::Deref;
+            println!("    {} {}({})", func_type.return_type.as_ref().unwrap_or(&"void".to_string()),
+                                      function.name, 
+                                      func_type.parameters.iter().map( |p| format!("{} {}", p.name, p._param.as_ref().unwrap().param_name ) )
+                                                                 .collect::<Vec<String>>().join(", "));
+        }
     }
 
     for type_info in type_info_vec.iter().filter( |x| x._enum.is_some() ) {
@@ -615,7 +689,26 @@ fn main() {
     }
 
     for type_info in type_info_vec.iter().filter( |x| x._func.is_some() ) {
-        println!( "Func: {}", type_info.name );
+        let func_type = type_info._func.as_ref().unwrap();
+        print!( "Func: {} {} (", func_type.return_type.as_ref().unwrap_or(&"void".to_string()), type_info.name );
+        let mut counter = 0;
+        for param in func_type.parameters.iter() {
+            let param_type = param._param.as_ref().unwrap();
+            if param_type.is_const {
+                print!("const ");
+            }
+            print!( "{}", param.name );
+            if param_type.is_ptr {
+                print!("*");
+            }
+            print!(" {}", param_type.param_name);
+
+            counter = counter + 1;
+            if counter < func_type.parameters.len() {
+                print!( ", " );
+            }
+        }
+        println!(")");
     }
 
     if !options.no_output {

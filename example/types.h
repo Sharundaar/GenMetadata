@@ -101,6 +101,32 @@ struct FieldInfo
     }
 };
 
+enum class FuncParameter_Modifier
+{
+    NONE      = 0,
+    CONSTANT  = 1 << 0,
+    POINTER   = 1 << 1,
+    REFERENCE = 1 << 2,
+};
+
+struct FuncParameter
+{
+    FuncParameter( const std::string _name, const TypeInfo* _type, FuncParameter_Modifier _modifier );
+
+    std::string name;
+    const TypeInfo* type;
+    FuncParameter_Modifier modifiers;
+};
+
+struct FuncInfo
+{
+    FuncInfo( const std::string& _name, const TypeInfo* _return_type, const std::vector<FuncParameter>& _parameters );
+
+    std::string name;
+    const TypeInfo* return_type;
+    const std::vector<FieldInfo> parameters;
+};
+
 struct ObjectData
 {
     u32 object_id;
@@ -108,12 +134,14 @@ struct ObjectData
 
 struct StructInfo : public TypeInfo
 {
-    StructInfo( const std::string& _name, u32 _size, const StructInfo* _parent, std::vector<FieldInfo> _fields );
+    StructInfo( const std::string& _name, u32 _size, const StructInfo* _parent, std::vector<FieldInfo> _fields, std::vector<FuncInfo> _functions );
 
     const FieldInfo& get_field( const std::string& field_name ) const;
+    const FuncInfo& get_func( const std::string& functione_name ) const;
 
     const StructInfo* parent;
     const std::vector<FieldInfo> fields;
+    const std::vector<FuncInfo> functions;
     const bool is_object;
     const ObjectData object_data;
 };
