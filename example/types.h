@@ -56,25 +56,27 @@ struct ScalarInfo : public TypeInfo
     ScalarInfo_Type scalar_type;
 };
 
-enum class FieldInfo_Modifier
+enum FieldInfo_Modifier
 {
     NONE      = 0,
     PRIVATE   = 1 << 0,
     CONSTANT  = 1 << 1,
     POINTER   = 1 << 2,
     REFERENCE = 1 << 3,
-    VECTOR    = 1 << 4,
-    ARRAY     = 1 << 5,
+    TEMPLATE  = 1 << 4,
 };
 
 struct FieldInfo
 {
     FieldInfo( const std::string& _name, const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset );
+    FieldInfo( const std::string& _name, const std::string _template_name, const std::vector<FieldInfo> _template_args, FieldInfo_Modifier _modifier, u32 _offset );
 
     std::string name;
     const TypeInfo* type;
     FieldInfo_Modifier modifier;
     u32 offset;
+    std::string template_name;
+    std::vector<FieldInfo> template_args;
 
     template<typename T>
     void set( void* obj, const T& value ) const
@@ -103,32 +105,13 @@ struct FieldInfo
     }
 };
 
-enum class FuncParameter_Modifier
-{
-    NONE      = 0,
-    CONSTANT  = 1 << 0,
-    POINTER   = 1 << 1,
-    REFERENCE = 1 << 2,
-    VECTOR    = 1 << 3,
-    ARRAY     = 1 << 4,
-};
-
-struct FuncParameter
-{
-    FuncParameter( const std::string& _name, const TypeInfo* _type, FuncParameter_Modifier _modifiers );
-
-    std::string name;
-    const TypeInfo* type;
-    FuncParameter_Modifier modifiers;
-};
-
 struct FuncInfo
 {
-    FuncInfo( const std::string& _name, const TypeInfo* _return_type, const std::vector<FuncParameter>& _parameters );
+    FuncInfo( const std::string& _name, const TypeInfo* _return_type, const std::vector<FieldInfo>& _parameters );
 
     std::string name;
     const TypeInfo* return_type;
-    const std::vector<FuncParameter> parameters;
+    const std::vector<FieldInfo> parameters;
 };
 
 struct ObjectData

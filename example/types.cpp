@@ -48,7 +48,12 @@ std::string ScalarInfo::get_name( u32 _size, ScalarInfo_Type _scalar_type )
 }
 
 FieldInfo::FieldInfo( const std::string& _name, const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset )
-    : name(_name), type( _type ), modifier( _modifier ), offset( _offset )
+    : name(_name), type( _type ), modifier( _modifier ), offset( _offset ), template_name(), template_args()
+{
+}
+
+FieldInfo::FieldInfo( const std::string& _name, const std::string _template_name, const std::vector<FieldInfo> _template_args, FieldInfo_Modifier _modifier, u32 _offset )
+    : name(_name), template_name(_template_name), template_args(_template_args), modifier(FieldInfo_Modifier::TEMPLATE | _modifier), offset(_offset)
 {
 }
 
@@ -108,12 +113,7 @@ const StructInfo* get_object_type( u32 type_id )
     return s_object_types[ type_id ];
 }
 
-FuncParameter::FuncParameter( const std::string& _name, const TypeInfo* _type, FuncParameter_Modifier _modifiers )
-    : name(_name), type(_type), modifiers(_modifiers)
-{
-}
-
-FuncInfo::FuncInfo( const std::string& _name, const TypeInfo* _return_type, const std::vector<FuncParameter>& _parameters )
+FuncInfo::FuncInfo( const std::string& _name, const TypeInfo* _return_type, const std::vector<FieldInfo>& _parameters )
     : name(_name), return_type(_return_type), parameters( _parameters )
 {
 }

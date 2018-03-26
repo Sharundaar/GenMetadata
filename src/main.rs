@@ -21,6 +21,7 @@ struct Options {
     additional_include_directories: Vec<String>,
     output_file: Option<String>,
     no_output: bool,
+    no_report: bool,
 }
 
 #[derive(Clone, Default)]
@@ -72,8 +73,8 @@ struct TypeInfoEnum {
 
 #[derive(Clone, Default)]
 struct TypeInfoFunc {
-    return_type: Option<String>,
-    parameters: Vec<TypeInfo>,
+    return_type: Option<Box<TypeInfo>>,
+    parameters:  Vec<TypeInfo>,
 }
 
 enum GMErrorKind {
@@ -177,7 +178,7 @@ impl TypeInfo {
         self
     }
 
-    fn make_func( mut self, return_type: Option<String> ) -> TypeInfo {
+    fn make_func( mut self, return_type: Option<Box<TypeInfo>> ) -> TypeInfo {
         self._func = Some( TypeInfoFunc{ return_type: return_type, ..Default::default() } );
         self
     }
@@ -257,6 +258,54 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
     }
 }
 
+fn remove_template_args( type_name: String ) -> String {
+    type_name.split('<').nth(0).unwrap_or_else( || &type_name ).to_string()
+}
+
+fn sanitize_type_name( arg: &Type ) -> String {
+    remove_template_args( arg.get_display_name().replace("const", "").trim().to_string() )
+}
+
+fn make_field_from_type<'a>( field_info: &mut TypeInfoField, type_def: &'a Type ) -> Result<Type<'a>, GMError> {
+    use TypeKind::*;
+    let type_def = match type_def.get_kind() {
+        Pointer => { 
+            field_info.is_ptr = true; 
+            let pointee_type = type_def.get_pointee_type().unwrap();
+            if pointee_type.get_kind() == Pointer {
+                return Err( GMError::error( "Unable to parse double pointer types. (eg. int**, int&* and others)".to_string() ) );
+            }
+            pointee_type
+        },
+        LValueReference => { 
+            field_info.is_ref = true;
+            let pointee_type = type_def.get_pointee_type().unwrap();
+            if pointee_type.get_kind() == Pointer {
+                return Err( GMError::error( "Unable to parse double ref types. (eg. int*&)".to_string() ) );
+            }
+            pointee_type
+        },
+        _ => {
+            *type_def
+        },
+    };
+    
+    field_info.is_const = type_def.is_const_qualified();
+
+    if let Some( template_args ) = type_def.get_template_argument_types() {
+        let mut tas: Vec<TypeInfo> = vec!();
+        for arg in template_args.iter().filter_map( |a| *a ) {
+            let mut thing = TypeInfo::new( "" ).make_field( "", 0 );
+            let true_type = make_field_from_type( thing._field.as_mut().unwrap(), &arg )?;
+            thing.name = sanitize_type_name( &true_type );
+            tas.push( thing );
+        }
+        field_info.templates = Some( tas );
+    }
+
+    Ok( type_def )
+}
+
 fn from_entity_fielddecl( entity: &Entity, parent_type: Option<&Type> ) -> Result<TypeInfo, GMError> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
@@ -273,29 +322,10 @@ fn from_entity_fielddecl( entity: &Entity, parent_type: Option<&Type> ) -> Resul
                     }
                 }
 
-                field_info.is_const = type_def.is_const_qualified();
-
-                use TypeKind::*;
-                match type_def.get_kind() {
-                    Pointer => { 
-                        field_info.is_ptr = true; 
-                        let pointee_type = type_def.get_pointee_type().unwrap();
-                        if pointee_type.get_kind() == Pointer {
-                            return Err( GMError::error( "Unable to parse double pointer types. (eg. int**, int&* and others)".to_string() ) );
-                        }
-                        type_info.name = pointee_type.get_display_name().replace( "const", "" ).trim().to_string();
-                    },
-                    LValueReference => { 
-                        field_info.is_ref = true;
-                        let pointee_type = type_def.get_pointee_type().unwrap();
-                        if pointee_type.get_kind() == Pointer {
-                            return Err( GMError::error( "Unable to parse double ref types. (eg. int*&)".to_string() ) );
-                        }
-                        type_info.name = pointee_type.get_display_name().replace( "const", "" ).trim().to_string();
-                    },
-                    _ => { type_info.name = type_def.get_display_name().replace("const", "").trim().to_string() },
-                }
+                let type_def = make_field_from_type( &mut field_info, &type_def )?;
+                type_info.name = sanitize_type_name( &type_def );
             }
+
             let type_info = type_info;
             Ok( type_info )
         },
@@ -330,10 +360,13 @@ fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
 
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( ent_type ) ) => {
-            let return_type_string = ent_type.get_result_type().unwrap().get_display_name();
-            let mut return_type: Option<String> = None;
-            if return_type_string != "void" {
-                return_type = Some( return_type_string );
+            let return_type_type = ent_type.get_result_type().unwrap();
+            let mut return_type: Option<Box<TypeInfo>> = None;
+            if return_type_type.get_display_name() != "void" {
+                let mut return_type_ti = TypeInfo::new( "" ).make_field( "", 0 );
+                let return_type_type = make_field_from_type( return_type_ti._field.as_mut().unwrap(), &return_type_type )?;
+                return_type_ti.name = sanitize_type_name( &return_type_type );
+                return_type = Some( Box::new( return_type_ti ) );
             }
             let mut type_info = TypeInfo::new( name ).make_func( return_type );
             type_info.source_file = get_source_file( entity );
@@ -423,6 +456,39 @@ fn build_modifier_string( field: &TypeInfoField ) -> String {
     }
 }
 
+fn write_field_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, field: &TypeInfo, indent: usize ) -> Result<bool, GMError> {
+
+    if let Some( type_field ) = field._field.as_ref() {
+        let field_name = &type_field.field_name;
+
+        if let Some( ref template_args ) = type_field.templates {
+            writeln!( file, "{indent}FieldInfo( \"{field_name}\", \"{template_name}\", {{", indent = " ".repeat( indent * 4 ), field_name = field_name, template_name = field.name )?;
+            for arg in template_args {
+                write_field_implementation( type_info_map, file, &arg, indent+1 )?;
+            }
+            writeln!( file, "{indent}}}, {modifier}, {offset} ),", indent = " ".repeat( indent * 4 ), modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
+        }
+        else {
+            if type_info_map.get( &field.name ).is_some() {
+                writeln!( file, "{indent}FieldInfo( \"{field_name}\", type_of<{field_type}>(), {modifier}, {offset} ),", indent = " ".repeat( indent * 4 ), field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
+            }
+            else {
+                writeln!( file, "{indent}FieldInfo( \"{field_name}\", nullptr, {modifier}, {offset} ),", indent = " ".repeat( indent * 4 ), field_name = field_name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
+            }
+        }
+    }
+    else {
+        if type_info_map.get( &field.name ).is_some() {
+            writeln!( file, "{indent}FieldInfo( \"\", type_of<{field_type}>(), FieldInfo_Modifier::None, 0 ),", indent = " ".repeat( indent * 4 ), field_type = field.name )?;
+        }
+        else {
+            writeln!( file, "{indent}FieldInfo( \"\", nullptr, FieldInfo_Modifier::None, 0 ),", indent = " ".repeat( indent * 4 ) )?;
+        }
+    }
+
+    Ok( true )
+}
+
 fn write_struct_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, GMError> {
 
     let struct_type = type_info._struct.as_ref().unwrap();
@@ -431,15 +497,29 @@ fn write_struct_implementation( type_info_map: &HashMap<String, &TypeInfo>, file
         None => writeln!( file, "static StructInfo type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), nullptr, std::vector<FieldInfo> {{", struct_name = type_info.name )?,
     };
 
+    // fields
     for field in &struct_type.fields {
-        let type_field = field._field.as_ref().unwrap();
-        let field_name = &type_field.field_name;
-        if type_info_map.get( &field.name ).is_some() {
-            writeln!( file, "    FieldInfo( \"{field_name}\", type_of<{field_type}>(), {modifier}, {offset} ),", field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
-        }
+        write_field_implementation( type_info_map, file, &field, 1 )?;
     }
 
-    writeln!( file, "}} );" )?;
+    writeln!( file, "}}, {{")?;
+    // functions
+    for function in &struct_type.functions {
+        let type_func = function._func.as_ref().unwrap();
+        let func_name = &function.name;
+        if let Some( ref return_type ) = type_func.return_type {
+            let return_type = &return_type;
+            writeln!( file, "    FuncInfo( \"{func_name}\", type_of<{return_type}>(), {{", func_name = func_name, return_type = return_type.name)? // incomplete informations sent to C++... return_type needs to be a FieldInfo
+        }
+        else {
+            writeln!( file, "    FuncInfo( \"{func_name}\", nullptr, {{", func_name = func_name )?
+        }
+
+        for param in &type_func.parameters {
+            write_field_implementation( type_info_map, file, param, 2 )?;
+        }
+    }
+    writeln!( file,  "}} );" )?;
     writeln!( file, "template<> const TypeInfo* type_of<{struct_name}>() {{ return static_cast<TypeInfo*>( &type_{struct_name} ); }}", struct_name = type_info.name )?;
 
     // Write constructors if needed
@@ -578,6 +658,8 @@ fn main() {
             .add_option(&["-v", "--verbose"], StoreTrue, "Be verbose");
         ap.refer(&mut options.no_output)
             .add_option(&["--no-output"], StoreTrue, "Don't output type_db.");
+        ap.refer(&mut options.no_report)
+            .add_option(&["--no-report"], StoreTrue, "Don't output type report.");
         ap.refer(&mut options.output_file)
             .add_option(&["-o", "--output"], StoreOption, "Output file");
         ap.refer(&mut options.additional_include_directories)
@@ -626,68 +708,74 @@ fn main() {
         match from_entity( &entity ) {
             Ok( type_info ) => { type_info_vec.push( type_info ); },
             Err( error ) => {
-                println!( "({}): {}", get_source_file( &entity ).unwrap_or_else(|| String::from("NoFile")), error ); 
+                if options.verbose {
+                    println!( "({}): {}", get_source_file( &entity ).unwrap_or_else(|| String::from("NoFile")), error ); 
+                }
             },
         };
     }
 
-    for type_info in type_info_vec.iter().filter( |x| x._struct.is_some() ) {
-        print!("Type: {}", type_info.name);
-        let type_struct = type_info._struct.as_ref().unwrap();
+    if !options.no_report {
+        for type_info in type_info_vec.iter().filter( |x| x._struct.is_some() ) {
+            print!("Type: {}", type_info.name);
+            let type_struct = type_info._struct.as_ref().unwrap();
 
-        if let Some( ref parent ) = type_struct.parent {
-            println!(" (parent: {})", parent);
-        } else {
-            println!();
-        }
-        for field in &type_struct.fields {
-            println!("    {}: {} ({})", field._field.as_ref().unwrap().offset, field._field.as_ref().unwrap().field_name, field.name);
-        }
-        for function in &type_struct.functions {
-            let func_type = function._func.as_ref().unwrap();
-            println!("    {} {}({})", func_type.return_type.as_ref().unwrap_or(&"void".to_string()),
-                                      function.name, 
-                                      func_type.parameters.iter().map( |p| format!("{} {}", p.name, p._field.as_ref().unwrap().field_name ) )
-                                                                 .collect::<Vec<String>>().join(", "));
-        }
-    }
-
-    for type_info in type_info_vec.iter().filter( |x| x._enum.is_some() ) {
-        let type_enum = type_info._enum.as_ref().unwrap();
-        println!("Enum: {} ({})", type_info.name, type_enum.underlying_type);
-
-        for (name, &(_, uval)) in &type_enum.enum_values {
-            println!("    {}: {}", name, uval);
-        }
-    }
-
-    for type_info in type_info_vec.iter().filter( |x| x._scalar.is_some() ) {
-        print!("Type: {}", type_info.name);
-        let type_scalar = type_info._scalar.as_ref().unwrap();
-        println!( " ({})", type_scalar.scalar_type );
-    }
-
-    for type_info in type_info_vec.iter().filter( |x| x._func.is_some() ) {
-        let func_type = type_info._func.as_ref().unwrap();
-        print!( "Func: {} {} (", func_type.return_type.as_ref().unwrap_or(&"void".to_string()), type_info.name );
-        let mut counter = 0;
-        for param in func_type.parameters.iter() {
-            let param_type = param._field.as_ref().unwrap();
-            if param_type.is_const {
-                print!("const ");
+            if let Some( ref parent ) = type_struct.parent {
+                println!(" (parent: {})", parent);
+            } else {
+                println!();
             }
-            print!( "{}", param.name );
-            if param_type.is_ptr {
-                print!("*");
+            for field in &type_struct.fields {
+                println!("    {}: {} ({})", field._field.as_ref().unwrap().offset, field._field.as_ref().unwrap().field_name, field.name);
             }
-            print!(" {}", param_type.field_name);
-
-            counter = counter + 1;
-            if counter < func_type.parameters.len() {
-                print!( ", " );
+            for function in &type_struct.functions {
+                let func_type = function._func.as_ref().unwrap();
+                /* @TODO: Report functions
+                println!("    {} {}({})", func_type.return_type.as_ref().unwrap_or(&"void".to_string()),
+                                        function.name, 
+                                        func_type.parameters.iter().map( |p| format!("{} {}", p.name, p._field.as_ref().unwrap().field_name ) )
+                                                                    .collect::<Vec<String>>().join(", ")); */
             }
         }
-        println!(")");
+
+        for type_info in type_info_vec.iter().filter( |x| x._enum.is_some() ) {
+            let type_enum = type_info._enum.as_ref().unwrap();
+            println!("Enum: {} ({})", type_info.name, type_enum.underlying_type);
+
+            for (name, &(_, uval)) in &type_enum.enum_values {
+                println!("    {}: {}", name, uval);
+            }
+        }
+
+        for type_info in type_info_vec.iter().filter( |x| x._scalar.is_some() ) {
+            print!("Type: {}", type_info.name);
+            let type_scalar = type_info._scalar.as_ref().unwrap();
+            println!( " ({})", type_scalar.scalar_type );
+        }
+
+        for type_info in type_info_vec.iter().filter( |x| x._func.is_some() ) {
+            /* @TODO: Report functions
+            let func_type = type_info._func.as_ref().unwrap();
+            print!( "Func: {} {} (", func_type.return_type.as_ref().unwrap_or(&"void".to_string()), type_info.name );
+            let mut counter = 0;
+            for param in func_type.parameters.iter() {
+                let param_type = param._field.as_ref().unwrap();
+                if param_type.is_const {
+                    print!("const ");
+                }
+                print!( "{}", param.name );
+                if param_type.is_ptr {
+                    print!("*");
+                }
+                print!(" {}", param_type.field_name);
+
+                counter = counter + 1;
+                if counter < func_type.parameters.len() {
+                    print!( ", " );
+                }
+            }
+            println!(")"); */
+        }
     }
 
     if !options.no_output {
