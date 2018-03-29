@@ -404,7 +404,9 @@ fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, GMError> {
 
     let mut file = File::create( "type_db.h" )?;
 
-    writeln!( file, "#pragma once\n" )?;
+    writeln!( file, "#pragma once" )?;
+    writeln!( file, "#include \"types.h\"")?;
+    writeln!( file )?;
 
     for type_info in type_info_vec.iter().filter( |t| t._enum.is_some() ) {
         let enum_type = type_info._enum.as_ref().unwrap();
@@ -466,14 +468,14 @@ fn write_field_implementation( type_info_map: &HashMap<String, &TypeInfo>, file:
             for arg in template_args {
                 write_field_implementation( type_info_map, file, &arg, indent+1 )?;
             }
-            writeln!( file, "{indent}}}, {modifier}, {offset} ),", indent = " ".repeat( indent * 4 ), modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
+            writeln!( file, "{indent}}}, (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = " ".repeat( indent * 4 ), modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
         }
         else {
             if type_info_map.get( &field.name ).is_some() {
-                writeln!( file, "{indent}FieldInfo( \"{field_name}\", type_of<{field_type}>(), {modifier}, {offset} ),", indent = " ".repeat( indent * 4 ), field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
+                writeln!( file, "{indent}FieldInfo( \"{field_name}\", type_of<{field_type}>(), (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = " ".repeat( indent * 4 ), field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
             }
             else {
-                writeln!( file, "{indent}FieldInfo( \"{field_name}\", nullptr, {modifier}, {offset} ),", indent = " ".repeat( indent * 4 ), field_name = field_name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
+                writeln!( file, "{indent}FieldInfo( \"{field_name}\", nullptr, (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = " ".repeat( indent * 4 ), field_name = field_name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
             }
         }
     }
@@ -518,6 +520,7 @@ fn write_struct_implementation( type_info_map: &HashMap<String, &TypeInfo>, file
         for param in &type_func.parameters {
             write_field_implementation( type_info_map, file, param, 2 )?;
         }
+        writeln!( file, "    }} ),")?;
     }
     writeln!( file,  "}} );" )?;
     writeln!( file, "template<> const TypeInfo* type_of<{struct_name}>() {{ return static_cast<TypeInfo*>( &type_{struct_name} ); }}", struct_name = type_info.name )?;
@@ -539,7 +542,7 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError
 
     // includes
     {
-        let mut includes: HashSet<&str> = [ "type_db.h", "basic_types.h" ].iter().cloned().collect();
+        let mut includes: HashSet<&str> = HashSet::new();
 
         for type_info in type_info_vec.iter() {
             if let Some( ref source_file ) = type_info.source_file {
@@ -547,10 +550,19 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError
             }
         }
 
+        let dependencies = &[ "type_db.h", "basic_types.h" ];
+        for dep in dependencies {
+            writeln!( file, "#include \"{}\"", dep )?;
+            includes.remove( dep );
+        }
+        includes.remove( "types.h" );
+
+        writeln!( file )?;
+
         for include in includes.iter() {
             writeln!( file, "#include \"{}\"", include )?;
         }
-        writeln!( file, "" )?;
+        writeln!( file )?;
     }
 
     // scalars
@@ -729,7 +741,7 @@ fn main() {
                 println!("    {}: {} ({})", field._field.as_ref().unwrap().offset, field._field.as_ref().unwrap().field_name, field.name);
             }
             for function in &type_struct.functions {
-                let func_type = function._func.as_ref().unwrap();
+                let _func_type = function._func.as_ref().unwrap();
                 /* @TODO: Report functions
                 println!("    {} {}({})", func_type.return_type.as_ref().unwrap_or(&"void".to_string()),
                                         function.name, 
@@ -753,7 +765,7 @@ fn main() {
             println!( " ({})", type_scalar.scalar_type );
         }
 
-        for type_info in type_info_vec.iter().filter( |x| x._func.is_some() ) {
+        for _type_info in type_info_vec.iter().filter( |x| x._func.is_some() ) {
             /* @TODO: Report functions
             let func_type = type_info._func.as_ref().unwrap();
             print!( "Func: {} {} (", func_type.return_type.as_ref().unwrap_or(&"void".to_string()), type_info.name );

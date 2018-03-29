@@ -73,10 +73,10 @@ struct FieldInfo
 
     std::string name;
     const TypeInfo* type;
-    FieldInfo_Modifier modifier;
-    u32 offset;
     std::string template_name;
     std::vector<FieldInfo> template_args;
+    FieldInfo_Modifier modifier;
+    u32 offset;
 
     template<typename T>
     void set( void* obj, const T& value ) const

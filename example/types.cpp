@@ -48,12 +48,12 @@ std::string ScalarInfo::get_name( u32 _size, ScalarInfo_Type _scalar_type )
 }
 
 FieldInfo::FieldInfo( const std::string& _name, const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset )
-    : name(_name), type( _type ), modifier( _modifier ), offset( _offset ), template_name(), template_args()
+    : name(_name), type(_type), template_name(), template_args(), modifier( _modifier ), offset( _offset )
 {
 }
 
 FieldInfo::FieldInfo( const std::string& _name, const std::string _template_name, const std::vector<FieldInfo> _template_args, FieldInfo_Modifier _modifier, u32 _offset )
-    : name(_name), template_name(_template_name), template_args(_template_args), modifier(FieldInfo_Modifier::TEMPLATE | _modifier), offset(_offset)
+    : name(_name), type(nullptr), template_name(_template_name), template_args(_template_args), modifier((FieldInfo_Modifier)(FieldInfo_Modifier::TEMPLATE | _modifier)), offset(_offset)
 {
 }
 
@@ -87,6 +87,7 @@ StructInfo::StructInfo( const std::string& _name, u32 _size, const StructInfo* _
 {
 }
 
+static FieldInfo errorField("error", nullptr, (FieldInfo_Modifier)0, 0);
 const FieldInfo& StructInfo::get_field( const std::string& field_name ) const
 {
     for(const auto& field : fields )
@@ -98,6 +99,7 @@ const FieldInfo& StructInfo::get_field( const std::string& field_name ) const
     }
 
     // @Error: should err here...
+    return errorField;
 }
 
 const TypeInfo* s_all_types[MAX_TYPE_COUNT];
