@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <array>
 #include <map>
 #include <string>
 
@@ -12,6 +13,10 @@ struct TypeInfo;
 struct ScalarInfo;
 struct FieldInfo;
 struct StructInfo;
+struct TemplateInfo;
+struct TemplateInstance;
+struct TemplateParam;
+struct TemplateInstanceRef;
 
 #define MAX_TYPE_COUNT 1024
 extern const TypeInfo* s_all_types[MAX_TYPE_COUNT];
@@ -21,12 +26,29 @@ const TypeInfo* get_type( u32 type_id );
 const StructInfo* get_object_type( u32 type_id );
 // const TypeInfo* type_of( const T& obj ); // for completness, this one doesn't need to be predeclared
 
+struct VariadicSingleValue
+{
+    union
+    {
+        i8  int_8;
+        i16 int_16;
+        i32 int_32;
+        i64 int_64;
+        u8  uint_8;
+        u16 uint_16;
+        u32 uint_32;
+        u64 uint_64;
+        f32 float_32;
+        f64 float_64;
+    };
+};
 
 enum class TypeInfo_Type
 {
     SCALAR,
     STRUCT,
     ENUM,
+    TEMPLATE,
 };
 
 struct TypeInfo
@@ -68,15 +90,18 @@ enum FieldInfo_Modifier
 
 struct FieldInfo
 {
+    FieldInfo();
     FieldInfo( const std::string& _name, const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset );
-    FieldInfo( const std::string& _name, const std::string _template_name, const std::vector<FieldInfo> _template_args, FieldInfo_Modifier _modifier, u32 _offset );
+    FieldInfo( const std::string& _name, const TemplateInstance* _template_type, FieldInfo_Modifier _modifier, u32 _offset );
 
     std::string name;
     const TypeInfo* type;
-    std::string template_name;
-    std::vector<FieldInfo> template_args;
+    const TemplateInstance* template_type;
     FieldInfo_Modifier modifier;
     u32 offset;
+
+    bool operator==( const FieldInfo& other ) const;
+    operator bool() const;
 
     template<typename T>
     void set( void* obj, const T& value ) const
@@ -140,3 +165,36 @@ struct EnumInfo : public TypeInfo
     std::map<std::string, i64> enum_values;
     const TypeInfo* underlying_type;
 };
+
+struct TemplateParam
+{
+    const FieldInfo info;
+    VariadicSingleValue instance_value; // depends on type_info
+};
+
+struct TemplateInstance
+{
+    TemplateInstance( const TemplateInfo* _definition, const std::array<TemplateParam, 4>& _params );
+
+    const std::array<TemplateParam, 4> params;
+    const TemplateInfo*                definition;
+};
+
+struct TemplateInstanceRef
+{
+    const TemplateInfo* definition;
+    i32                 inst_idx;
+    const TemplateInstance* operator->() { return &definition->instances[inst_idx]; }
+};
+
+struct TemplateInfo : public TypeInfo
+{
+    TemplateInfo( const std::string& name );
+    std::vector<TemplateInstance> instances;
+
+    bool                has_instance( const std::array<TemplateParam, 4>& params );
+    TemplateInstanceRef get_instance( const std::array<TemplateParam, 4>& params, bool create_if_needed = false );
+
+private:
+    i32 get_instance_internal( const std::array<TemplateParam, 4>& params );
+}

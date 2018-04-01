@@ -33,6 +33,12 @@ struct TypeInfo {
     _scalar:     Option<TypeInfoScalar>,
     _enum:       Option<TypeInfoEnum>,
     _func:       Option<TypeInfoFunc>,
+    _template:   Option<TypeInfoTemplate>,
+}
+
+#[derive(Clone, Default)]
+struct TypeInfoTemplate {
+
 }
 
 #[derive(Clone, Default)]
@@ -94,6 +100,27 @@ struct GMError {
     gravity: GMErrorGravity,
     kind: GMErrorKind,
     description: String,
+}
+
+enum TypeInfoType<'a> {
+    None,
+    Struct( &'a TypeInfoStruct ),
+    Field( &'a TypeInfoField ),
+    Scalar( &'a TypeInfoScalar ),
+    Enum( &'a TypeInfoEnum ),
+    Func( &'a TypeInfoFunc ),
+    Template( &'a TypeInfoTemplate ),
+}
+
+fn get_type_info_type<'a>( type_info: &'a TypeInfo ) -> TypeInfoType<'a> {
+    use TypeInfoType::*;
+    if      let Some( ref sub_type ) = type_info._struct { Struct( sub_type ) }
+    else if let Some( ref sub_type ) = type_info._enum { Enum( sub_type ) }
+    else if let Some( ref sub_type ) = type_info._scalar { Scalar( sub_type ) }
+    else if let Some( ref sub_type ) = type_info._template { Template( sub_type ) }
+    else if let Some( ref sub_type ) = type_info._field { Field( sub_type ) }
+    else if let Some( ref sub_type ) = type_info._func { Func( sub_type ) }
+    else { None }
 }
 
 impl GMError {
@@ -165,6 +192,11 @@ impl TypeInfo {
 
     fn make_field( mut self, field_name: &str, offset: u32 ) -> TypeInfo {
         self._field = Some( TypeInfoField{ field_name: String::from( field_name ), offset: offset, ..Default::default() } );
+        self
+    }
+
+    fn make_template( mut self ) -> TypeInfo {
+        self._template = Some( TypeInfoTemplate::default() );
         self
     }
 
@@ -385,6 +417,23 @@ fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
     }
 }
 
+fn from_entity_classtemplate( entity: &Entity ) -> Result<TypeInfo, GMError> {
+    let name = entity.get_name().unwrap();
+    let type_info = TypeInfo::new( name ).make_template();
+
+    for child in entity.get_children() {
+        use EntityKind::*;
+        match child.get_kind() {
+            TemplateTypeParameter => {},
+            NonTemplateTypeParameter => {},
+            kind => { println!("unhandled kind {:?}", kind); }
+        };
+        println!("child kind: {:?}", child.get_kind());
+    }
+
+    Err(GMError::info("classtemplate unimplemented.".to_string()))
+}
+
 fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
     match entity.get_kind() {
         EntityKind::StructDecl   => from_entity_structdecl( entity ),
@@ -394,6 +443,7 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
         EntityKind::FunctionDecl => from_entity_funcdecl( entity ),
         EntityKind::ParmDecl     => from_entity_fielddecl( entity, None ),
         EntityKind::Method       => from_entity_funcdecl( entity ),
+        EntityKind::ClassTemplate => from_entity_classtemplate( entity ),
         kind => Err( GMError::info( format!( "Unhandled entity kind: {:?}", kind) ) ),
     }
 }
@@ -658,6 +708,73 @@ fn get_clang_arguments( input_directories: &Vec<String>, additional_include_dire
     arguments
 }
 
+fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
+    use TypeInfoType::*;
+    for type_info in type_info_vec.iter() {
+        match get_type_info_type( type_info ) {
+            Struct( type_struct) => {
+                print!("Type: {}", type_info.name);
+
+                if let Some( ref parent ) = type_struct.parent {
+                    println!(" (parent: {})", parent);
+                } else {
+                    println!();
+                }
+                for field in &type_struct.fields {
+                    println!("    {}: {} ({})", field._field.as_ref().unwrap().offset, field._field.as_ref().unwrap().field_name, field.name);
+                }
+                for function in &type_struct.functions {
+                    let _func_type = function._func.as_ref().unwrap();
+                    /* @TODO: Report functions
+                    println!("    {} {}({})", func_type.return_type.as_ref().unwrap_or(&"void".to_string()),
+                                            function.name, 
+                                            func_type.parameters.iter().map( |p| format!("{} {}", p.name, p._field.as_ref().unwrap().field_name ) )
+                                                                        .collect::<Vec<String>>().join(", ")); */
+                }
+            },
+            Enum(type_enum) => {
+                println!("Enum: {} ({})", type_info.name, type_enum.underlying_type);
+
+                for (name, &(_, uval)) in &type_enum.enum_values {
+                    println!("    {}: {}", name, uval);
+                }
+            },
+            Scalar( type_scalar ) => {
+                print!("Type: {}", type_info.name);
+                let type_scalar = type_info._scalar.as_ref().unwrap();
+                println!( " ({})", type_scalar.scalar_type );
+            },
+            Func( _type_func ) => {
+                /* @TODO: Report functions
+                let func_type = type_info._func.as_ref().unwrap();
+                print!( "Func: {} {} (", func_type.return_type.as_ref().unwrap_or(&"void".to_string()), type_info.name );
+                let mut counter = 0;
+                for param in func_type.parameters.iter() {
+                    let param_type = param._field.as_ref().unwrap();
+                    if param_type.is_const {
+                        print!("const ");
+                    }
+                    print!( "{}", param.name );
+                    if param_type.is_ptr {
+                        print!("*");
+                    }
+                    print!(" {}", param_type.field_name);
+
+                    counter = counter + 1;
+                    if counter < func_type.parameters.len() {
+                        print!( ", " );
+                    }
+                }
+                println!(")"); */
+            },
+            Template(_type_template) => {
+                println!("Template: {}", type_info.name);
+            },
+            _ => {}
+        }
+    }
+}
+
 fn main() {
     let start = Instant::now();
 
@@ -728,66 +845,7 @@ fn main() {
     }
 
     if !options.no_report {
-        for type_info in type_info_vec.iter().filter( |x| x._struct.is_some() ) {
-            print!("Type: {}", type_info.name);
-            let type_struct = type_info._struct.as_ref().unwrap();
-
-            if let Some( ref parent ) = type_struct.parent {
-                println!(" (parent: {})", parent);
-            } else {
-                println!();
-            }
-            for field in &type_struct.fields {
-                println!("    {}: {} ({})", field._field.as_ref().unwrap().offset, field._field.as_ref().unwrap().field_name, field.name);
-            }
-            for function in &type_struct.functions {
-                let _func_type = function._func.as_ref().unwrap();
-                /* @TODO: Report functions
-                println!("    {} {}({})", func_type.return_type.as_ref().unwrap_or(&"void".to_string()),
-                                        function.name, 
-                                        func_type.parameters.iter().map( |p| format!("{} {}", p.name, p._field.as_ref().unwrap().field_name ) )
-                                                                    .collect::<Vec<String>>().join(", ")); */
-            }
-        }
-
-        for type_info in type_info_vec.iter().filter( |x| x._enum.is_some() ) {
-            let type_enum = type_info._enum.as_ref().unwrap();
-            println!("Enum: {} ({})", type_info.name, type_enum.underlying_type);
-
-            for (name, &(_, uval)) in &type_enum.enum_values {
-                println!("    {}: {}", name, uval);
-            }
-        }
-
-        for type_info in type_info_vec.iter().filter( |x| x._scalar.is_some() ) {
-            print!("Type: {}", type_info.name);
-            let type_scalar = type_info._scalar.as_ref().unwrap();
-            println!( " ({})", type_scalar.scalar_type );
-        }
-
-        for _type_info in type_info_vec.iter().filter( |x| x._func.is_some() ) {
-            /* @TODO: Report functions
-            let func_type = type_info._func.as_ref().unwrap();
-            print!( "Func: {} {} (", func_type.return_type.as_ref().unwrap_or(&"void".to_string()), type_info.name );
-            let mut counter = 0;
-            for param in func_type.parameters.iter() {
-                let param_type = param._field.as_ref().unwrap();
-                if param_type.is_const {
-                    print!("const ");
-                }
-                print!( "{}", param.name );
-                if param_type.is_ptr {
-                    print!("*");
-                }
-                print!(" {}", param_type.field_name);
-
-                counter = counter + 1;
-                if counter < func_type.parameters.len() {
-                    print!( ", " );
-                }
-            }
-            println!(")"); */
-        }
+        show_report_types(&type_info_vec);
     }
 
     if !options.no_output {

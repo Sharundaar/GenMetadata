@@ -47,14 +47,30 @@ std::string ScalarInfo::get_name( u32 _size, ScalarInfo_Type _scalar_type )
     return ""; // should not reach here
 }
 
+FieldInfo::FieldInfo()
+    : name(), type(nullptr), template_type(nullptr), modifier(NONE), offset(0)
+{}
+
 FieldInfo::FieldInfo( const std::string& _name, const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset )
-    : name(_name), type(_type), template_name(), template_args(), modifier( _modifier ), offset( _offset )
+    : name(_name), type(_type), template_type(nullptr), modifier( _modifier ), offset( _offset )
 {
 }
 
-FieldInfo::FieldInfo( const std::string& _name, const std::string _template_name, const std::vector<FieldInfo> _template_args, FieldInfo_Modifier _modifier, u32 _offset )
-    : name(_name), type(nullptr), template_name(_template_name), template_args(_template_args), modifier((FieldInfo_Modifier)(FieldInfo_Modifier::TEMPLATE | _modifier)), offset(_offset)
+FieldInfo::FieldInfo( const std::string& _name, const TemplateInstance* _template_type, FieldInfo_Modifier _modifier, u32 _offset )
+    : name(_name), type(nullptr), template_type(_template_type), modifier((FieldInfo_Modifier)(FieldInfo_Modifier::TEMPLATE | _modifier)), offset(_offset)
 {
+}
+
+bool FieldInfo::operator==( const FieldInfo& other ) const
+{
+    return ( this->type == other.type || this->template_type == other.template_type ) 
+           && this->modifier == other.modifier 
+           && this->offset == other.offset;
+}
+
+FieldInfo::operator bool() const
+{
+    return this->type != nullptr || this->template_type != nullptr;
 }
 
 EnumInfo::EnumInfo( const std::string& _name, const TypeInfo* _underlying_type, std::map<std::string, i64> _enum_values )
@@ -87,7 +103,7 @@ StructInfo::StructInfo( const std::string& _name, u32 _size, const StructInfo* _
 {
 }
 
-static FieldInfo errorField("error", nullptr, (FieldInfo_Modifier)0, 0);
+static FieldInfo errorField;
 const FieldInfo& StructInfo::get_field( const std::string& field_name ) const
 {
     for(const auto& field : fields )
@@ -117,5 +133,74 @@ const StructInfo* get_object_type( u32 type_id )
 
 FuncInfo::FuncInfo( const std::string& _name, const TypeInfo* _return_type, const std::vector<FieldInfo>& _parameters )
     : name(_name), return_type(_return_type), parameters( _parameters )
+{
+}
+
+TemplateInfo::TemplateInfo( const std::string& _name )
+    : TypeInfo( _name, 0, TypeInfo_Type::TEMPLATE ), instances()
+{
+}
+
+i32 TemplateInfo::get_instance_internal( const std::array<TemplateParam, 4>& params )
+{
+    for(int i=0; i<instances.size(); ++i)
+    {
+        const auto& inst = instances[i];
+        bool all_param_match = true;
+        for(int j=0; j<inst.params.size(); ++j)
+        {
+            const auto& inst_param = inst.params[j];
+            const auto& comp_param = params[j];
+            if( !inst_param.info || !comp_param.info )
+            {
+                if( inst_param.info || comp_param.info)
+                    all_param_match = false;
+                break;
+            }
+
+            if( inst_param.info == comp_param.info )
+            {
+                if( inst_param.info.type->type == TypeInfo_Type::SCALAR )
+                {
+                    if( inst_param.instance_value.int_64 != comp_param.instance_value.int_64 )
+                    {
+                        all_param_match = false;
+                        break;
+                    }
+                }
+            }
+            else if( inst_param.info.template_type == comp_param.info.template_type)
+            {
+            }
+            else
+            {
+                all_param_match = false;
+                break;
+            }
+        }
+        if (all_param_match)
+            return i;
+    }
+    return -1;
+}
+
+bool TemplateInfo::has_instance( const std::array<TemplateParam, 4>& params )
+{
+    return get_instance_internal( params ) >= 0;
+}
+
+TemplateInstanceRef TemplateInfo::get_instance( const std::array<TemplateParam, 4>& params, bool create_if_needed )
+{
+    auto idx = get_instance_internal( params );
+    if( idx < 0 && create_if_needed )
+    {
+        idx = instances.size();
+        instances.push_back( TemplateInstance( this, params ) );
+    }
+    return TemplateInstanceRef{ this, idx };
+}
+
+TemplateInstance::TemplateInstance( const TemplateInfo* _definition, const std::array<TemplateParam, 4>& _params )
+    : definition(_definition), params(_params)
 {
 }
