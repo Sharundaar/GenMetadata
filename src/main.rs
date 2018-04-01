@@ -770,7 +770,10 @@ fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
             Template(_type_template) => {
                 println!("Template: {}", type_info.name);
             },
-            _ => {}
+            Field( _type_field ) => {
+                println!("ERROR (for now...): Should not encounter field.");
+            },
+            None => { println!("ERROR: get_type_info_type should not return None...");}
         }
     }
 }
