@@ -185,7 +185,7 @@ struct TemplateInstanceRef
 {
     const TemplateInfo* definition;
     i32                 inst_idx;
-    const TemplateInstance* operator->() { return &definition->instances[inst_idx]; }
+    const TemplateInstance* operator->();
 };
 
 struct TemplateInfo : public TypeInfo
@@ -198,4 +198,4 @@ struct TemplateInfo : public TypeInfo
 
 private:
     i32 get_instance_internal( const std::array<TemplateParam, 4>& params );
-}
+};

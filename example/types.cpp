@@ -209,3 +209,5 @@ TemplateInstance::TemplateInstance( const TemplateInfo* _definition, const std::
     : definition(_definition), params(_params)
 {
 }
+
+const TemplateInstance* TemplateInstanceRef::operator->() { return &definition->instances[inst_idx]; }

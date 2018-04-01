@@ -408,7 +408,7 @@ fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
             let type_info = type_info;
             Ok( type_info )
         },
-        ( false, Some( type_def ) ) => Err( GMError::error( format!("Enum {} is unscoped, can't generate TypeInfo for unscoped enums.", type_def.get_display_name() ) ) ),
+        ( false, Some( type_def ) ) => Err( GMError::warning( format!("Enum {} is unscoped, can't generate TypeInfo for unscoped enums.", type_def.get_display_name() ) ) ),
         _ => Err( GMError::error( "Couldn't generate TypeInfo from this EnumDecl.".to_string() ) ),
     }
 }
@@ -444,6 +444,10 @@ fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
 }
 
 fn from_entity_classtemplate( entity: &Entity ) -> Result<TypeInfo, GMError> {
+    if !entity.is_definition() {
+        return Err( GMError::info( "Not definition.".to_string() ) );
+    }
+
     let name = entity.get_name().unwrap();
     let type_info = TypeInfo::new( name ).make_template();
 /* @TODO: if we want more informations about the templates...
@@ -644,52 +648,53 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError
         writeln!( file )?;
     }
 
-    // scalars
-    for type_info in type_info_vec.iter().filter( |t| t._scalar.is_some() ) {
-        use ScalarInfo::*;
-
-        let scalar_type = type_info._scalar.as_ref().unwrap();
-        let scalar_name = &type_info.name;
-
-        let scalar_type_name = match scalar_type.scalar_type {
-            INT => "INT",
-            UINT => "UINT",
-            FLOAT => "FLOAT",
-        };
-        writeln!( file, "static ScalarInfo type_{scalar_name} ( sizeof( {scalar_name} ), ScalarInfo_Type::{scalar_type} );", scalar_name = scalar_name, scalar_type = scalar_type_name )?;
-        writeln!( file, "template<> const TypeInfo* type_of<{scalar_name}>() {{ return &type_{scalar_name}; }}", scalar_name = scalar_name )?;
-        writeln!( file, "const TypeInfo* type_of( const {scalar_name}& obj ) {{ return &type_{scalar_name}; }}", scalar_name = scalar_name )?;
-        writeln!( file )?;
-    }
-
-    // enums
-    for type_info in type_info_vec.iter().filter( |t| t._enum.is_some() ) {
-        let enum_type = type_info._enum.as_ref().unwrap();
-        writeln!( file, "static EnumInfo type_{enum_name} ( \"{enum_name}\", type_of<{underlying_type}>(), {{", enum_name=type_info.name, underlying_type=enum_type.underlying_type )?;
-        for ( name, &(value, _) ) in &enum_type.enum_values {
-            writeln!( file, "    {{ \"{}\", {} }},", name, value )?;
-        }
-        writeln!( file, "}} );" )?;
-
-        writeln!(file, "template<> const TypeInfo* type_of<{enum_name}>() {{ return &type_{enum_name}; }}", enum_name=type_info.name )?;
-        writeln!(file, "const TypeInfo* type_of( const {enum_name}& obj ) {{ return &type_{enum_name}; }}", enum_name=type_info.name )?;
-        writeln!( file )?;
-    }
-
-    // templates
     use std::iter::FromIterator;
     let type_info_map: HashMap<String, &TypeInfo> = HashMap::from_iter(type_info_vec.iter().map(|x| (x.name.clone(), x)));
-    
-    for type_info in type_info_vec.iter().filter( |t| t._template.is_some() ) {
-        writeln!( file, "static TemplateInfo type_{template_type}( \"{template_name}\" );", template_type=type_info.name.replace("::", "_"), template_name=type_info.name )?;
+
+    for type_info in type_info_vec.iter() {
+        use TypeInfoType::*;
+        match get_type_info_type( &type_info ) {
+
+            Scalar( scalar_type ) => {
+                use ScalarInfo::*;
+                let scalar_name = &type_info.name;
+
+                let scalar_type_name = match scalar_type.scalar_type {
+                    INT => "INT",
+                    UINT => "UINT",
+                    FLOAT => "FLOAT",
+                };
+                writeln!( file, "static ScalarInfo type_{scalar_name} ( sizeof( {scalar_name} ), ScalarInfo_Type::{scalar_type} );", scalar_name = scalar_name, scalar_type = scalar_type_name )?;
+                writeln!( file, "template<> const TypeInfo* type_of<{scalar_name}>() {{ return &type_{scalar_name}; }}", scalar_name = scalar_name )?;
+                writeln!( file, "const TypeInfo* type_of( const {scalar_name}& obj ) {{ return &type_{scalar_name}; }}", scalar_name = scalar_name )?;
+                writeln!( file )?;
+            },
+
+            Enum( enum_type ) => {
+                let enum_type = type_info._enum.as_ref().unwrap();
+                writeln!( file, "static EnumInfo type_{enum_name} ( \"{enum_name}\", type_of<{underlying_type}>(), {{", enum_name=type_info.name, underlying_type=enum_type.underlying_type )?;
+                for ( name, &(value, _) ) in &enum_type.enum_values {
+                    writeln!( file, "    {{ \"{}\", {} }},", name, value )?;
+                }
+                writeln!( file, "}} );" )?;
+
+                writeln!(file, "template<> const TypeInfo* type_of<{enum_name}>() {{ return &type_{enum_name}; }}", enum_name=type_info.name )?;
+                writeln!(file, "const TypeInfo* type_of( const {enum_name}& obj ) {{ return &type_{enum_name}; }}", enum_name=type_info.name )?;
+                writeln!( file )?;
+            },
+
+            Template( template_type ) => {
+                writeln!( file, "static TemplateInfo type_{template_type}( \"{template_name}\" );", template_type=type_info.name.replace("::", "_"), template_name=type_info.name )?;
+                writeln!( file )?;
+            },
+
+            Struct( struct_type ) => {
+                write_struct_implementation( &type_info_map, &mut file, &type_info )?;
+            }
+
+            _ => {},
+        }
     }
-
-    // structs
-
-    for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() ) {
-        write_struct_implementation( &type_info_map, &mut file, &type_info )?;
-    }
-
 
     Ok( true )
 }
