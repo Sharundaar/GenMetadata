@@ -51,6 +51,11 @@ FieldInfo::FieldInfo()
     : name(), type(nullptr), template_type(nullptr), modifier(NONE), offset(0)
 {}
 
+FieldInfo::FieldInfo( const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset )
+    : name(), type(_type), template_type(nullptr), modifier( _modifier ), offset( _offset )
+{
+}
+
 FieldInfo::FieldInfo( const std::string& _name, const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset )
     : name(_name), type(_type), template_type(nullptr), modifier( _modifier ), offset( _offset )
 {

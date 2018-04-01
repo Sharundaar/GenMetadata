@@ -91,6 +91,7 @@ enum FieldInfo_Modifier
 struct FieldInfo
 {
     FieldInfo();
+    FieldInfo( const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset );
     FieldInfo( const std::string& _name, const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset );
     FieldInfo( const std::string& _name, const TemplateInstance* _template_type, FieldInfo_Modifier _modifier, u32 _offset );
 

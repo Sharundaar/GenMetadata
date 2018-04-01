@@ -539,49 +539,43 @@ fn build_modifier_string( field: &TypeInfoField ) -> String {
 
     match result.is_empty() {
         true  => String::from( "FieldInfo_Modifier::NONE" ),
-        false => result.join( "|" )
+        false => result.join( " | " )
     }
 }
 
 fn write_field_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, field: &TypeInfo, indent: usize ) -> Result<bool, GMError> {
-
+    let indent_str = " ".repeat( indent * 4 );
     if let Some( type_field ) = field._field.as_ref() {
         let field_name = &type_field.field_name;
+        if let Some( registered_type ) = type_info_map.get( &field.name ) {
+            if registered_type._struct.is_some() {
+                writeln!( file, "{indent}FieldInfo( \"{field_name}\", type_of<{field_type}>(), (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = indent_str, field_name = field_name, field_type=field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
+            } else if let Some( ref template_args ) = type_field.templates {
+                writeln!( file, "{indent}FieldInfo( \"{field_name}\", type_{template_type}.get_instance( {{", indent = indent_str, field_name = field_name, template_type = field.name.replace("::", "_") )?;
+                for arg in template_args {
+                    writeln!( file, "{indent}TemplateParam{{ ", indent = indent_str )?;
+                    write_field_implementation( type_info_map, file, &arg, indent+1 )?;
+                    writeln!( file, "{indent}, {some_value}}},", indent = indent_str, some_value = 5 )?;
+                }
+                writeln!( file, "{indent}}}, true ), (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = indent_str, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
+            } else {
+                writeln!( file, "{indent}FieldInfo( \"{field_name}\", type_of<{field_type}>(), (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = indent_str, field_name = field_name, field_type=field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
+            }
+        } else {
+            writeln!( file, "{indent}FieldInfo( \"{field_name}\", nullptr, (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = indent_str, field_name = field_name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
+        }
 
-        if let Some( ref template_args ) = type_field.templates {
-            writeln!( file, "{indent}FieldInfo( \"{field_name}\", \"{template_name}\", {{", indent = " ".repeat( indent * 4 ), field_name = field_name, template_name = field.name )?;
-            for arg in template_args {
-                write_field_implementation( type_info_map, file, &arg, indent+1 )?;
-            }
-            writeln!( file, "{indent}}}, (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = " ".repeat( indent * 4 ), modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
-        }
-        else {
-            if type_info_map.get( &field.name ).is_some() {
-                writeln!( file, "{indent}FieldInfo( \"{field_name}\", type_of<{field_type}>(), (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = " ".repeat( indent * 4 ), field_name = field_name, field_type = field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
-            }
-            else {
-                writeln!( file, "{indent}FieldInfo( \"{field_name}\", nullptr, (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = " ".repeat( indent * 4 ), field_name = field_name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
-            }
-        }
+        Ok( true )
+    } else {
+        Err( GMError::error( format!( "Called write_field_implementation without passing a field type as parameter (field type name: {}).", field.name ) ) )
     }
-    else {
-        if type_info_map.get( &field.name ).is_some() {
-            writeln!( file, "{indent}FieldInfo( \"\", type_of<{field_type}>(), FieldInfo_Modifier::None, 0 ),", indent = " ".repeat( indent * 4 ), field_type = field.name )?;
-        }
-        else {
-            writeln!( file, "{indent}FieldInfo( \"\", nullptr, FieldInfo_Modifier::None, 0 ),", indent = " ".repeat( indent * 4 ) )?;
-        }
-    }
-
-    Ok( true )
 }
 
 fn write_struct_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, GMError> {
-
     let struct_type = type_info._struct.as_ref().unwrap();
     match struct_type.parent {
-        Some( ref parent ) => writeln!( file, "static StructInfo type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), static_cast<const StructInfo*>( type_of<{parent_name}>() ), {{", struct_name = type_info.name, parent_name = parent )?,
-        None => writeln!( file, "static StructInfo type_{struct_name}( \"{struct_name}\", sizeof({struct_name}), nullptr, std::vector<FieldInfo> {{", struct_name = type_info.name )?,
+        Some( ref parent ) => writeln!( file, "static StructInfo type_{struct_name_adjusted}( \"{struct_name}\", sizeof({struct_name}), static_cast<const StructInfo*>( type_of<{parent_name}>() ), {{", struct_name_adjusted=type_info.name.replace("::", "_"), struct_name = type_info.name, parent_name = parent )?,
+        None => writeln!( file, "static StructInfo type_{struct_name_adjusted}( \"{struct_name}\", sizeof({struct_name}), nullptr, std::vector<FieldInfo> {{", struct_name_adjusted=type_info.name.replace("::", "_"),struct_name = type_info.name )?,
     };
 
     // fields
@@ -608,7 +602,7 @@ fn write_struct_implementation( type_info_map: &HashMap<String, &TypeInfo>, file
         writeln!( file, "    }} ),")?;
     }
     writeln!( file,  "}} );" )?;
-    writeln!( file, "template<> const TypeInfo* type_of<{struct_name}>() {{ return static_cast<TypeInfo*>( &type_{struct_name} ); }}", struct_name = type_info.name )?;
+    writeln!( file, "template<> const TypeInfo* type_of<{struct_name}>() {{ return static_cast<TypeInfo*>( &type_{struct_name_adjusted} ); }}", struct_name=type_info.name, struct_name_adjusted = type_info.name.replace("::", "_") )?;
 
     // Write constructors if needed
     if has_object_parent( struct_type, type_info_map ) {
@@ -682,9 +676,15 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError
         writeln!( file )?;
     }
 
-    // structs
+    // templates
     use std::iter::FromIterator;
     let type_info_map: HashMap<String, &TypeInfo> = HashMap::from_iter(type_info_vec.iter().map(|x| (x.name.clone(), x)));
+    
+    for type_info in type_info_vec.iter().filter( |t| t._template.is_some() ) {
+        writeln!( file, "static TemplateInfo type_{template_type}( \"{template_name}\" );", template_type=type_info.name.replace("::", "_"), template_name=type_info.name )?;
+    }
+
+    // structs
 
     for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() ) {
         write_struct_implementation( &type_info_map, &mut file, &type_info )?;
