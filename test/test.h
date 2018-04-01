@@ -1,4 +1,6 @@
 
+#include <string>
+
 template<typename T>
 class TemplateClass
 {
@@ -15,5 +17,11 @@ struct [[SomeAttribute]] SomeStruct
 {
     TemplateClass<int> cl;
     TemplateStruct<char, 23> ts;
-    int i;
+    std::string str;
+    unsigned int i;
+};
+
+class SomeClass
+{
+    char c;
 };

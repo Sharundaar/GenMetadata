@@ -28,6 +28,7 @@ struct Options {
 struct TypeInfo {
     name: String,
     source_file: Option<String>,
+    built_in: bool,
     _struct:     Option<TypeInfoStruct>,
     _field:      Option<TypeInfoField>,
     _scalar:     Option<TypeInfoScalar>,
@@ -41,11 +42,19 @@ struct TypeInfoTemplate {
 
 }
 
+#[derive(Clone)]
+enum TypeInfoStructKind
+{
+    Struct,
+    Class,
+}
+
 #[derive(Clone, Default)]
 struct TypeInfoStruct {
     fields: Vec<TypeInfo>,
     functions: Vec<TypeInfo>,
     parent: Option<String>,
+    kind: TypeInfoStructKind
 }
 
 #[derive(Clone, Default)]
@@ -169,6 +178,10 @@ impl Default for ScalarInfo {
     fn default() -> ScalarInfo { ScalarInfo::INT }
 }
 
+impl Default for TypeInfoStructKind {
+    fn default() -> TypeInfoStructKind { TypeInfoStructKind::Struct }
+}
+
 impl Display for ScalarInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use ScalarInfo::*;
@@ -195,13 +208,18 @@ impl TypeInfo {
         self
     }
 
+    fn make_builtin( mut self ) -> TypeInfo {
+        self.built_in = true;
+        self
+    }
+
     fn make_template( mut self ) -> TypeInfo {
         self._template = Some( TypeInfoTemplate::default() );
         self
     }
 
-    fn make_struct( mut self, parent: &Option<&str> ) -> TypeInfo {
-        self._struct = Some( TypeInfoStruct{ parent: parent.map(|x| x.to_string()), ..Default::default() });
+    fn make_struct( mut self, parent: &Option<&str>, kind: TypeInfoStructKind ) -> TypeInfo {
+        self._struct = Some( TypeInfoStruct{ parent: parent.map(|x| x.to_string()), kind: kind, ..Default::default() });
         self
     }
 
@@ -246,11 +264,19 @@ fn get_source_file( entity: &Entity ) -> Option<String> {
     }
 }
 
+fn get_struct_kind_from_entity_kind( ent_kind: EntityKind ) -> TypeInfoStructKind {
+    match ent_kind {
+        EntityKind::ClassDecl => TypeInfoStructKind::Class,
+        EntityKind::StructDecl => TypeInfoStructKind::Struct,
+        _ => TypeInfoStructKind::Struct,
+    }
+}
+
 fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
     if !entity.is_definition() { return Err( GMError::info( "not definition".to_string() ) ); }
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( _ ) ) => {
-            let mut type_info = TypeInfo::new( name ).make_struct( &None );
+            let mut type_info = TypeInfo::new( name ).make_struct( &None, get_struct_kind_from_entity_kind( entity.get_kind() ) );
             type_info.source_file = get_source_file( entity );
 
             {
@@ -420,29 +446,34 @@ fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
 fn from_entity_classtemplate( entity: &Entity ) -> Result<TypeInfo, GMError> {
     let name = entity.get_name().unwrap();
     let type_info = TypeInfo::new( name ).make_template();
-
+/* @TODO: if we want more informations about the templates...
     for child in entity.get_children() {
         use EntityKind::*;
         match child.get_kind() {
-            TemplateTypeParameter => {},
-            NonTemplateTypeParameter => {},
-            kind => { println!("unhandled kind {:?}", kind); }
+            TemplateTypeParameter => {
+                println!( "{:?}", child.get_type() );
+             },
+            NonTypeTemplateParameter => {
+                println!( "{:?}", child.get_type() );
+            },
+            kind => {
+                println!("Unhandled template child: {:?}", kind);
+            }
         };
-        println!("child kind: {:?}", child.get_kind());
     }
-
-    Err(GMError::info("classtemplate unimplemented.".to_string()))
+*/
+    Ok( type_info )
 }
 
 fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
     match entity.get_kind() {
-        EntityKind::StructDecl   => from_entity_structdecl( entity ),
-        EntityKind::ClassDecl    => from_entity_structdecl( entity ),
-        EntityKind::FieldDecl    => from_entity_fielddecl( entity, Some( &entity.get_semantic_parent().unwrap().get_type().unwrap() ) ), // should be ok for a field decl... haven't found a better way to pass this...
-        EntityKind::EnumDecl     => from_entity_enumdecl( entity ),
-        EntityKind::FunctionDecl => from_entity_funcdecl( entity ),
-        EntityKind::ParmDecl     => from_entity_fielddecl( entity, None ),
-        EntityKind::Method       => from_entity_funcdecl( entity ),
+        EntityKind::StructDecl    => from_entity_structdecl( entity ),
+        EntityKind::ClassDecl     => from_entity_structdecl( entity ),
+        EntityKind::FieldDecl     => from_entity_fielddecl( entity, Some( &entity.get_semantic_parent().unwrap().get_type().unwrap() ) ), // should be ok for a field decl... haven't found a better way to pass this...
+        EntityKind::EnumDecl      => from_entity_enumdecl( entity ),
+        EntityKind::FunctionDecl  => from_entity_funcdecl( entity ),
+        EntityKind::ParmDecl      => from_entity_fielddecl( entity, None ),
+        EntityKind::Method        => from_entity_funcdecl( entity ),
         EntityKind::ClassTemplate => from_entity_classtemplate( entity ),
         kind => Err( GMError::info( format!( "Unhandled entity kind: {:?}", kind) ) ),
     }
@@ -465,8 +496,11 @@ fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, GMError> {
 
     writeln!( file )?;
     
-    for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() ) {
-        writeln!( file, "struct {};", type_info.name )?;
+    for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() && !t.built_in ) {
+        match type_info._struct.as_ref().unwrap().kind {
+            TypeInfoStructKind::Struct => writeln!( file, "struct {};", type_info.name )?,
+            TypeInfoStructKind::Class => writeln!( file, "class {};", type_info.name )?,
+        }
     }
 
     writeln!( file )?;
@@ -485,6 +519,7 @@ fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, GMError> {
 
     for type_info in type_info_vec.iter() {
         if type_info._func.is_some() { continue; }
+        if type_info._template.is_some() { continue; }
         writeln!( file, "template<> const TypeInfo* type_of<{}>();", type_info.name )?;
         writeln!( file, "const TypeInfo* type_of(const {}& obj);", type_info.name )?;
         writeln!( file )?;
@@ -691,6 +726,8 @@ fn get_built_in_types() -> Vec<TypeInfo> {
         TypeInfo::new("u64").make_scalar(UINT),
         TypeInfo::new("f32").make_scalar(FLOAT),
         TypeInfo::new("f64").make_scalar(FLOAT),
+        TypeInfo::new("std::vector").make_template(),
+        TypeInfo::new("std::string").make_struct( &None, TypeInfoStructKind::Class ).make_builtin(),
     ];
 
     return built_ins;
@@ -741,7 +778,6 @@ fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
             },
             Scalar( type_scalar ) => {
                 print!("Type: {}", type_info.name);
-                let type_scalar = type_info._scalar.as_ref().unwrap();
                 println!( " ({})", type_scalar.scalar_type );
             },
             Func( _type_func ) => {
