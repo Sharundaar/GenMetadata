@@ -7,8 +7,8 @@ struct MyStruct : public Object
 {
     GENERATE_BODY( MyStruct );
 
-    u32 number1;
-    i8  number2;
+    u32 number1 = 0;
+    i8  number2 = 0;
     std::vector<i32> some_array;
 };
 
@@ -22,7 +22,9 @@ struct MyStruct2 : public Object
 
 class PhysicSystem
 {
-    int some_data;
+    u32 some_data;
+    std::vector<MyStruct> myStructs;
+    std::vector<MyStruct2> myStructs2;
     void update( const std::vector<MyStruct>& structs, const std::vector<MyStruct2>& structs2 );
 };
 

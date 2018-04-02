@@ -557,16 +557,16 @@ fn write_field_implementation( type_info_map: &HashMap<String, &TypeInfo>, file:
             } else if let Some( ref template_args ) = type_field.templates {
                 writeln!( file, "{indent}FieldInfo( \"{field_name}\", type_{template_type}.get_instance( {{", indent = indent_str, field_name = field_name, template_type = field.name.replace("::", "_") )?;
                 for arg in template_args {
-                    writeln!( file, "{indent}TemplateParam{{ ", indent = indent_str )?;
+                    writeln!( file, "{indent}TemplateParam {{ ", indent = indent_str )?;
                     write_field_implementation( type_info_map, file, &arg, indent+1 )?;
-                    writeln!( file, "{indent}, {some_value}}},", indent = indent_str, some_value = 5 )?;
+                    writeln!( file, "{indent}{some_value} }},", indent = indent_str, some_value = 5 )?;
                 }
                 writeln!( file, "{indent}}}, true ), (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = indent_str, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
             } else {
                 writeln!( file, "{indent}FieldInfo( \"{field_name}\", type_of<{field_type}>(), (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = indent_str, field_name = field_name, field_type=field.name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
             }
         } else {
-            writeln!( file, "{indent}FieldInfo( \"{field_name}\", nullptr, (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = indent_str, field_name = field_name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
+            writeln!( file, "{indent}FieldInfo( \"{field_name}\", (FieldInfo_Modifier) ({modifier}), {offset} ),", indent = indent_str, field_name = field_name, modifier = build_modifier_string( &type_field ), offset = type_field.offset )?;
         }
 
         Ok( true )
@@ -720,6 +720,7 @@ fn generate_main_file( file_list: &Vec<PathBuf>) -> Result<(), String> {
 fn get_built_in_types() -> Vec<TypeInfo> {
     use ScalarInfo::*;
     let built_ins: Vec<TypeInfo> = vec![
+        TypeInfo::new("bool").make_scalar(UINT),
         TypeInfo::new("char").make_scalar(UINT),
         TypeInfo::new("i8").make_scalar(INT),
         TypeInfo::new("i16").make_scalar(INT),

@@ -88,16 +88,31 @@ enum FieldInfo_Modifier
     TEMPLATE  = 1 << 4,
 };
 
+struct TemplateInstanceRef
+{
+    TemplateInstanceRef();
+    TemplateInstanceRef( const TemplateInfo* _definition, i32 _inst_idx );
+    
+    const TemplateInfo* definition;
+    i32                 inst_idx;
+    const TemplateInstance* operator->() const;
+    bool operator==( const TemplateInstanceRef& other ) const;
+    bool operator==( const std::nullptr_t other ) const;
+    bool operator!=( const std::nullptr_t other ) const;
+    operator bool() const;
+};
+
 struct FieldInfo
 {
     FieldInfo();
     FieldInfo( const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset );
+    FieldInfo( const std::string& _name, FieldInfo_Modifier _modifier, u32 _offset );
     FieldInfo( const std::string& _name, const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset );
-    FieldInfo( const std::string& _name, const TemplateInstance* _template_type, FieldInfo_Modifier _modifier, u32 _offset );
+    FieldInfo( const std::string& _name, const TemplateInstanceRef _template_type, FieldInfo_Modifier _modifier, u32 _offset );
 
     std::string name;
     const TypeInfo* type;
-    const TemplateInstance* template_type;
+    const TemplateInstanceRef template_type;
     FieldInfo_Modifier modifier;
     u32 offset;
 
@@ -177,15 +192,8 @@ struct TemplateInstance
 {
     TemplateInstance( const TemplateInfo* _definition, const std::array<TemplateParam, 4>& _params );
 
-    const std::array<TemplateParam, 4> params;
     const TemplateInfo*                definition;
-};
-
-struct TemplateInstanceRef
-{
-    const TemplateInfo* definition;
-    i32                 inst_idx;
-    const TemplateInstance* operator->();
+    const std::array<TemplateParam, 4> params;
 };
 
 struct TemplateInfo : public TypeInfo

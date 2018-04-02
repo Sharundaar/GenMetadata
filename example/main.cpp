@@ -17,9 +17,27 @@ int main( int, char** )
         if( type->type == TypeInfo_Type::STRUCT )
         {
             const auto* struct_type = (StructInfo*) type;
-            for( auto member : struct_type->fields )
+            for( auto& member : struct_type->fields )
             {
-                cout << "\t" << member.offset << ": " << member.type->name << " " << member.name << endl;
+                if( member.type )
+                    cout << "\t" << member.offset << ": " << member.type->name << " " << member.name << endl;
+                if( member.template_type )
+                {
+                    cout << "\t" << member.offset << ": " << member.template_type->definition->name << "( ";
+                    for( auto& param: member.template_type->params )
+                    {
+                        if( param.info.modifier & FieldInfo_Modifier::CONSTANT )
+                            cout << "const ";
+                        if( param.info.type )
+                            cout << param.info.type->name << ", ";
+                    }
+                    cout << ")" << endl;
+                }
+            }
+
+            for( auto& func : struct_type->functions )
+            {
+                cout << "\t" << func.name << " -> " << (func.return_type ? func.return_type->name : "void") << endl;
             }
         }
     }
@@ -36,6 +54,5 @@ int main( int, char** )
 
     show_pool_report();
 
-    cin.ignore();
     return 0;
 }

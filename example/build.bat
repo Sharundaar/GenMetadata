@@ -1,11 +1,11 @@
 @echo off
 
-REM del type_db.*
-REM cd ..
-REM call cargo run --release -- example
-REM call copy type_db.* example
-REM cd example
-REM timeout /t 1
+del type_db.*
+cd ..
+call cargo run --release -- example
+call copy type_db.* example
+cd example
+timeout /t 1
 
 g++ types.cpp -g -c -o types.obj -Wall -std=c++11
 g++ type_db.cpp -g -c -o type_db.obj -Wall -std=c++11

@@ -48,27 +48,31 @@ std::string ScalarInfo::get_name( u32 _size, ScalarInfo_Type _scalar_type )
 }
 
 FieldInfo::FieldInfo()
-    : name(), type(nullptr), template_type(nullptr), modifier(NONE), offset(0)
+    : name(), type(nullptr), template_type(), modifier(NONE), offset(0)
+{}
+
+FieldInfo::FieldInfo( const std::string& _name, FieldInfo_Modifier _modifier, u32 _offset )
+    : name(_name), type(nullptr), template_type(), modifier(_modifier), offset(_offset)
 {}
 
 FieldInfo::FieldInfo( const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset )
-    : name(), type(_type), template_type(nullptr), modifier( _modifier ), offset( _offset )
+    : name(), type(_type), template_type(), modifier( _modifier ), offset( _offset )
 {
 }
 
 FieldInfo::FieldInfo( const std::string& _name, const TypeInfo* _type, FieldInfo_Modifier _modifier, u32 _offset )
-    : name(_name), type(_type), template_type(nullptr), modifier( _modifier ), offset( _offset )
+    : name(_name), type(_type), template_type(), modifier( _modifier ), offset( _offset )
 {
 }
 
-FieldInfo::FieldInfo( const std::string& _name, const TemplateInstance* _template_type, FieldInfo_Modifier _modifier, u32 _offset )
+FieldInfo::FieldInfo( const std::string& _name, const TemplateInstanceRef _template_type, FieldInfo_Modifier _modifier, u32 _offset )
     : name(_name), type(nullptr), template_type(_template_type), modifier((FieldInfo_Modifier)(FieldInfo_Modifier::TEMPLATE | _modifier)), offset(_offset)
 {
 }
 
 bool FieldInfo::operator==( const FieldInfo& other ) const
 {
-    return ( this->type == other.type || this->template_type == other.template_type ) 
+    return ( this->type == other.type && this->template_type == other.template_type ) 
            && this->modifier == other.modifier 
            && this->offset == other.offset;
 }
@@ -148,11 +152,11 @@ TemplateInfo::TemplateInfo( const std::string& _name )
 
 i32 TemplateInfo::get_instance_internal( const std::array<TemplateParam, 4>& params )
 {
-    for(int i=0; i<instances.size(); ++i)
+    for(u32 i=0; i<instances.size(); ++i)
     {
         const auto& inst = instances[i];
         bool all_param_match = true;
-        for(int j=0; j<inst.params.size(); ++j)
+        for(u32 j=0; j<inst.params.size(); ++j)
         {
             const auto& inst_param = inst.params[j];
             const auto& comp_param = params[j];
@@ -173,9 +177,6 @@ i32 TemplateInfo::get_instance_internal( const std::array<TemplateParam, 4>& par
                         break;
                     }
                 }
-            }
-            else if( inst_param.info.template_type == comp_param.info.template_type)
-            {
             }
             else
             {
@@ -210,4 +211,16 @@ TemplateInstance::TemplateInstance( const TemplateInfo* _definition, const std::
 {
 }
 
-const TemplateInstance* TemplateInstanceRef::operator->() { return &definition->instances[inst_idx]; }
+const TemplateInstance* TemplateInstanceRef::operator->() const { return definition == nullptr ? nullptr : &definition->instances[inst_idx]; }
+
+TemplateInstanceRef::TemplateInstanceRef()
+    : definition(nullptr), inst_idx(0)
+{}
+TemplateInstanceRef::TemplateInstanceRef( const TemplateInfo* _definition, i32 _inst_idx )
+    : definition(_definition), inst_idx(_inst_idx)
+{}
+
+bool TemplateInstanceRef::operator==( const TemplateInstanceRef& other ) const { return definition == other.definition && inst_idx == other.inst_idx; }
+bool TemplateInstanceRef::operator==( const std::nullptr_t other ) const { return definition == nullptr; }
+bool TemplateInstanceRef::operator!=( const std::nullptr_t other ) const { return definition != nullptr; }
+TemplateInstanceRef::operator bool() const { return *this != nullptr; }
