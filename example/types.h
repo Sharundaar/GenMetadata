@@ -68,6 +68,8 @@ enum class ScalarInfo_Type
     INT,
     UINT,
     FLOAT,
+    CHAR,
+    BOOL
 };
 
 struct ScalarInfo : public TypeInfo

@@ -47,7 +47,7 @@ int main( int, char** )
     auto struct_pool = get_pool<MyStruct>();
     auto myStruct = struct_pool->Instantiate();
 
-    cout << myStruct->number1 << " " << to_string( myStruct->number2 ) << endl;
+    cout << myStruct->number1 << " " << to_string( myStruct->number2 ) << " " << to_string( myStruct->some_bool ) << " " << to_string( myStruct->some_char ) << endl;
 
     struct_pool->Destroy( myStruct );
     delete_pool<MyStruct>();

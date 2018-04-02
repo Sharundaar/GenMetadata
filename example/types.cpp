@@ -40,6 +40,12 @@ std::string ScalarInfo::get_name( u32 _size, ScalarInfo_Type _scalar_type )
         if( _size == sizeof( f32 ) ) return "f32";
         if( _size == sizeof( f64 ) ) return "f64";
         break;
+    case ScalarInfo_Type::BOOL:
+        return "bool";
+        break;
+    case ScalarInfo_Type::CHAR:
+        return "char";
+        break;
     default:
         break;
     }

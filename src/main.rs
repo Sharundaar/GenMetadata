@@ -72,7 +72,9 @@ struct TypeInfoField {
 enum ScalarInfo {
     INT,
     UINT,
-    FLOAT
+    FLOAT,
+    BOOL,
+    CHAR
 }
 
 #[derive(Clone, Default)]
@@ -189,6 +191,8 @@ impl Display for ScalarInfo {
             INT => write!(f, "int"),
             UINT => write!(f, "uint"),
             FLOAT => write!(f, "float"),
+            CHAR => write!(f, "char"),
+            BOOL => write!(f, "bool"),
         }
     }
 }
@@ -663,6 +667,8 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError
                     INT => "INT",
                     UINT => "UINT",
                     FLOAT => "FLOAT",
+                    BOOL => "BOOL",
+                    CHAR => "CHAR",
                 };
                 writeln!( file, "static ScalarInfo type_{scalar_name} ( sizeof( {scalar_name} ), ScalarInfo_Type::{scalar_type} );", scalar_name = scalar_name, scalar_type = scalar_type_name )?;
                 writeln!( file, "template<> const TypeInfo* type_of<{scalar_name}>() {{ return &type_{scalar_name}; }}", scalar_name = scalar_name )?;
@@ -670,7 +676,7 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError
                 writeln!( file )?;
             },
 
-            Enum( enum_type ) => {
+            Enum( _enum_type ) => {
                 let enum_type = type_info._enum.as_ref().unwrap();
                 writeln!( file, "static EnumInfo type_{enum_name} ( \"{enum_name}\", type_of<{underlying_type}>(), {{", enum_name=type_info.name, underlying_type=enum_type.underlying_type )?;
                 for ( name, &(value, _) ) in &enum_type.enum_values {
@@ -683,12 +689,12 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError
                 writeln!( file )?;
             },
 
-            Template( template_type ) => {
+            Template( _template_type ) => {
                 writeln!( file, "static TemplateInfo type_{template_type}( \"{template_name}\" );", template_type=type_info.name.replace("::", "_"), template_name=type_info.name )?;
                 writeln!( file )?;
             },
 
-            Struct( struct_type ) => {
+            Struct( _struct_type ) => {
                 write_struct_implementation( &type_info_map, &mut file, &type_info )?;
             }
 
@@ -720,8 +726,9 @@ fn generate_main_file( file_list: &Vec<PathBuf>) -> Result<(), String> {
 fn get_built_in_types() -> Vec<TypeInfo> {
     use ScalarInfo::*;
     let built_ins: Vec<TypeInfo> = vec![
-        TypeInfo::new("bool").make_scalar(UINT),
-        TypeInfo::new("char").make_scalar(UINT),
+        TypeInfo::new("bool").make_scalar(BOOL),
+        TypeInfo::new("char").make_scalar(CHAR),
+        TypeInfo::new("ulong").make_scalar(UINT),
         TypeInfo::new("i8").make_scalar(INT),
         TypeInfo::new("i16").make_scalar(INT),
         TypeInfo::new("i32").make_scalar(INT),

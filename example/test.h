@@ -9,6 +9,8 @@ struct MyStruct : public Object
 
     u32 number1 = 0;
     i8  number2 = 0;
+    bool some_bool = false;
+    char some_char = 'c';
     std::vector<i32> some_array;
 };
 
