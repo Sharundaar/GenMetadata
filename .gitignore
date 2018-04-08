@@ -16,6 +16,7 @@ type_db.h
 type_db.cpp
 main.h
 
+example/
 cpp/build
 cpp/bin/
 
