@@ -16,7 +16,7 @@ type_db.h
 type_db.cpp
 main.h
 
-example/build
-example/bin/
+cpp/build
+cpp/bin/
 
 settings.json
