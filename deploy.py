@@ -8,6 +8,7 @@ gen_metadata_exec_path = "target/release/gen-metadata.exe"
 gen_metadata_dest_path = "../Externals/GenMetadata"
 
 sys.stdout.write( 'Compiling source...' )
+sys.stdout.flush()
 result = subprocess.run( gen_metadata_build_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE )
 if result.returncode != 0:
     sys.stdout.write( colored( ' Failure\n', 'red' ) )
@@ -17,6 +18,7 @@ if result.returncode != 0:
 sys.stdout.write( colored(' Success\n', 'green' ) )
 
 sys.stdout.write( 'Copy outputfile to {}...'.format( gen_metadata_dest_path ) )
+sys.stdout.flush()
 try:
     copy2( gen_metadata_exec_path, gen_metadata_dest_path )
 except IOError as e:

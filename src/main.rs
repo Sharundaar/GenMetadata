@@ -428,7 +428,9 @@ fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
                 let mut return_type_ti = TypeInfo::new( "" ).make_field( "", 0 );
                 let return_type_type = make_field_from_type( return_type_ti._field.as_mut().unwrap(), &return_type_type )?;
                 return_type_ti.name = sanitize_type_name( &return_type_type );
-                return_type = Some( Box::new( return_type_ti ) );
+                if return_type_ti.name != "void" {
+                    return_type = Some( Box::new( return_type_ti ) );
+                }
             }
             let mut type_info = TypeInfo::new( name ).make_func( return_type );
             type_info.source_file = get_source_file( entity );
@@ -503,13 +505,28 @@ fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, GMError> {
     }
 
     writeln!( file )?;
-    
+
     for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() && !t.built_in ) {
         match type_info._struct.as_ref().unwrap().kind {
             TypeInfoStructKind::Struct => writeln!( file, "struct {};", type_info.name )?,
             TypeInfoStructKind::Class => writeln!( file, "class {};", type_info.name )?,
         }
     }
+
+    writeln!( file )?;
+
+    writeln!( file, "enum class TypeId")?;
+    writeln!( file, "{{")?;
+    for type_info in type_info_vec.iter() {
+        if type_info._func.is_some() { continue; }
+        if type_info._template.is_some() { continue; }
+        if type_info._scalar.is_some() {
+            writeln!( file, "    s{},", type_info.name.replace("::", "_") );
+        } else {
+            writeln!( file, "    {},", type_info.name.replace("::", "_") );
+        }
+    }
+    writeln!( file, "}};")?;
 
     writeln!( file )?;
 
@@ -674,7 +691,7 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError
                 writeln!( file, "template<> const TypeInfo* type_of<{scalar_name}>() {{ return &type_{scalar_name}; }}", scalar_name = scalar_name )?;
                 writeln!( file, "const TypeInfo* type_of( const {scalar_name}& obj ) {{ return &type_{scalar_name}; }}", scalar_name = scalar_name )?;
                 writeln!( file )?;
-            },
+            }
 
             Enum( _enum_type ) => {
                 let enum_type = type_info._enum.as_ref().unwrap();
@@ -687,12 +704,12 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError
                 writeln!(file, "template<> const TypeInfo* type_of<{enum_name}>() {{ return &type_{enum_name}; }}", enum_name=type_info.name )?;
                 writeln!(file, "const TypeInfo* type_of( const {enum_name}& obj ) {{ return &type_{enum_name}; }}", enum_name=type_info.name )?;
                 writeln!( file )?;
-            },
+            }
 
             Template( _template_type ) => {
                 writeln!( file, "static TemplateInfo type_{template_type}( \"{template_name}\" );", template_type=type_info.name.replace("::", "_"), template_name=type_info.name )?;
                 writeln!( file )?;
-            },
+            }
 
             Struct( _struct_type ) => {
                 write_struct_implementation( &type_info_map, &mut file, &type_info )?;
