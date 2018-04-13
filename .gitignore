@@ -20,4 +20,5 @@ example/
 cpp/build
 cpp/bin/
 
-settings.json
+.vscode/settings.json
+.vscode/*.bat
