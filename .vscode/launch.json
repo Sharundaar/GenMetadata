@@ -8,10 +8,10 @@
             "name": "Debug",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceRoot}/example/bin/Debug/TypeInfo.exe",
+            "program": "${workspaceRoot}/cpp/bin/Debug/TypeInfo.exe",
             "args": [],
             "stopAtEntry": true,
-            "cwd": "${workspaceRoot}/example",
+            "cwd": "${workspaceRoot}/cpp",
             "environment": [],
             "externalConsole": true
         }
