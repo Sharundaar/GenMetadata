@@ -47,22 +47,25 @@ void init_type_system()
     while( it < s_alloc_buffer + s_alloc_index )
     {
         auto type = (TypeInfo*)it;
-        s_all_types[type->type_id.local_type] = type;
         switch( type->type )
         {
         case TypeInfo_Type::SCALAR:
+            s_all_types[type->type_id.local_type] = type;
             it += sizeof( ScalarInfo );
             break;
         case TypeInfo_Type::FUNCTION:
             it += sizeof( FuncInfo );
             break;
         case TypeInfo_Type::ENUM:
+            s_all_types[type->type_id.local_type] = type;
             it += sizeof( EnumInfo );
             break;
         case TypeInfo_Type::STRUCT:
+            s_all_types[type->type_id.local_type] = type;
             it += sizeof( StructInfo );
             break;
         case TypeInfo_Type::TEMPLATE:
+            s_all_types[type->type_id.local_type] = type;
             it += sizeof( TemplateInfo );
             break;
         }
@@ -75,32 +78,60 @@ int main( int, char** )
     for( const auto** typePtr = &s_all_types[0]; *typePtr != nullptr; ++typePtr )
     {
         const auto* type = *typePtr;
-        cout << "Type: " << type->name << endl;
-        if( type->type == TypeInfo_Type::STRUCT )
+        switch( type->type )
         {
-            const auto* struct_type = (StructInfo*) type;
-            for( auto& member : struct_type->fields )
-            {
-                if( member.type )
-                    cout << "\t" << member.offset << ": " << member.type->name << " " << member.name << endl;
-                if( member.template_type )
+        case TypeInfo_Type::STRUCT: {
+                cout << "Struct: " << type->name << endl;
+                const auto* struct_type = (StructInfo*) type;
+                for( auto& member : struct_type->fields )
                 {
-                    cout << "\t" << member.offset << ": " << member.template_type->definition->name << "( ";
-                    for( auto& param: member.template_type->params )
+                    if( member.type )
+                        cout << "\t" << member.offset << ": " << member.type->name << " " << member.name << endl;
+                    if( member.template_type )
                     {
-                        if( param.info.modifier & FieldInfo_Modifier::CONSTANT )
-                            cout << "const ";
-                        if( param.info.type )
-                            cout << param.info.type->name << ", ";
+                        cout << "\t" << member.offset << ": " << member.template_type->definition->name << "( ";
+                        for(int i=0; i < member.template_type->params.size(); ++i)
+                        {
+                            auto& param = member.template_type->params[i];
+                            if( param.info.type )
+                            {
+                                if( i>0 )
+                                    cout << ", ";
+                                if( param.info.modifier & FieldInfo_Modifier::CONSTANT )
+                                    cout << "const ";
+                                cout << param.info.type->name;
+                                if( param.info.modifier & FieldInfo_Modifier::POINTER )
+                                    cout << "*";
+                                if( param.info.modifier & FieldInfo_Modifier::REFERENCE )
+                                    cout << "&";
+                            }
+                        }
+                        cout << " )" << endl;
                     }
-                    cout << ")" << endl;
                 }
-            }
 
-            for( auto& func : struct_type->functions )
-            {
-                cout << "\t" << func.name << " -> " << (func.return_type ? func.return_type.type->name : "void") << endl;
+                for( auto& func : struct_type->functions )
+                {
+                    cout << "\t" << func.name << " -> " << (func.return_type ? func.return_type.type->name : "void") << endl;
+                }
+                break;
             }
+        case TypeInfo_Type::SCALAR: {
+            cout << "Scalar: " << type->name << endl;
+            break;
+        }
+        case TypeInfo_Type::FUNCTION: {
+            cout << "Function: " << type->name << endl;
+            break;
+        }
+        case TypeInfo_Type::TEMPLATE: {
+            cout << "Template: " << type->name << endl;
+            break;
+        }
+        case TypeInfo_Type::ENUM: {
+            cout << "Enum: " << type->name << endl;
+            break;
+        }
         }
     }
 
