@@ -35,3 +35,32 @@ void sys_graphic( std::vector<MyStruct2> my_structs );
 void sys_gameplay( std::vector<MyStruct> my_structs, std::vector<MyStruct2> my_structs_2 );
 
 bool test_function( int param1, float param2 );
+
+template<typename T>
+class TemplateClass
+{
+    T data;
+};
+
+template<typename T, int I>
+struct TemplateStruct
+{
+    T data[I];
+};
+
+struct SomeStruct
+{
+    TemplateClass<const u32*> cl;
+    TemplateStruct<char, 23> ts;
+    std::string str;
+    u32 i;
+};
+
+class SomeClass
+{
+    char c;
+    void some_function();
+    void some_function2( u32 a );
+    u32  some_function3( u32 b );
+    int  some_error_function( int a );
+};

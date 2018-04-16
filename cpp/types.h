@@ -7,24 +7,17 @@
 
 #include "basic_types.h"
 
-#define INVALID_TYPE_ID ((u32)0-1)
-
+struct TypeId;
 struct TypeInfo;
 struct ScalarInfo;
+struct EnumInfo;
 struct FieldInfo;
 struct StructInfo;
+struct FuncInfo;
 struct TemplateInfo;
 struct TemplateInstance;
 struct TemplateParam;
 struct TemplateInstanceRef;
-
-#define MAX_TYPE_COUNT 1024
-extern const TypeInfo* s_all_types[MAX_TYPE_COUNT];
-extern const StructInfo* s_object_types[MAX_TYPE_COUNT];
-template<typename T> const TypeInfo* type_of();
-const TypeInfo* get_type( u32 type_id );
-const StructInfo* get_object_type( u32 type_id );
-// const TypeInfo* type_of( const T& obj ); // for completness, this one doesn't need to be predeclared
 
 struct VariadicSingleValue
 {
@@ -49,18 +42,30 @@ enum class TypeInfo_Type
     STRUCT,
     ENUM,
     TEMPLATE,
+    FUNCTION,
 };
+
+struct TypeId
+{
+    u32 global_type = 0;
+    u32 local_type  = 0;
+};
+
+#define INVALID_TYPE_ID ((u32)0-1)
+template<typename T> constexpr TypeId type_id();
+
+void type_set_name( TypeInfo& type, const char* name );
+void type_set_size( TypeInfo& type, const u32 size );
+void type_set_id( TypeInfo& type, const TypeId type_id );
 
 struct TypeInfo
 {
-    TypeInfo( const std::string& _name, u32 _size, TypeInfo_Type _type );
+    TypeInfo( TypeInfo_Type _type );
 
     std::string name;
     u32 size;
     TypeInfo_Type type;
-    u32 type_id;
-
-    const StructInfo* operator()() { return (StructInfo*)this; }
+    TypeId type_id;
 };
 
 enum class ScalarInfo_Type
@@ -72,10 +77,14 @@ enum class ScalarInfo_Type
     BOOL
 };
 
+void scalar_set_type( ScalarInfo& scalar, ScalarInfo_Type type );
+
 struct ScalarInfo : public TypeInfo
 {
-    ScalarInfo( u32 _size, ScalarInfo_Type _scalar_type );
+    static const TypeInfo_Type ti_type = TypeInfo_Type::SCALAR;
     static std::string get_name( u32 _size, ScalarInfo_Type _scalar_type );
+
+    ScalarInfo();
 
     ScalarInfo_Type scalar_type;
 };
@@ -114,10 +123,11 @@ struct FieldInfo
 
     std::string name;
     const TypeInfo* type;
-    const TemplateInstanceRef template_type;
+    TemplateInstanceRef template_type;
     FieldInfo_Modifier modifier;
     u32 offset;
 
+    FieldInfo& operator=( const FieldInfo& other );
     bool operator==( const FieldInfo& other ) const;
     operator bool() const;
 
@@ -148,13 +158,17 @@ struct FieldInfo
     }
 };
 
-struct FuncInfo
-{
-    FuncInfo( const std::string& _name, const TypeInfo* _return_type, const std::vector<FieldInfo>& _parameters );
+void func_set_name( FuncInfo& func, const std::string& _name );
+void func_set_return_type( FuncInfo& func, const FieldInfo _return_type );
+void func_add_parameter( FuncInfo& func, const FieldInfo _parameter );
+void func_finalize_free_function( FuncInfo& func );
 
-    std::string name;
-    const TypeInfo* return_type;
-    const std::vector<FieldInfo> parameters;
+struct FuncInfo : public TypeInfo
+{
+    FuncInfo();
+
+    FieldInfo return_type;
+    std::vector<FieldInfo> parameters;
 };
 
 struct ObjectData
@@ -162,23 +176,36 @@ struct ObjectData
     u32 object_id;
 };
 
+void struct_set_parent( StructInfo& type, const StructInfo* parent );
+void struct_add_field( StructInfo& type, const FieldInfo& field );
+void struct_add_function( StructInfo& type, const FuncInfo& function);
+void struct_is_object( StructInfo& type, bool is_object );
+void struct_set_object_data( StructInfo& type, const ObjectData object_data );
+
 struct StructInfo : public TypeInfo
 {
-    StructInfo( const std::string& _name, u32 _size, const StructInfo* _parent, std::vector<FieldInfo> _fields, std::vector<FuncInfo> _functions );
+    static const TypeInfo_Type ti_type = TypeInfo_Type::STRUCT;
+
+    StructInfo();
 
     const FieldInfo& get_field( const std::string& field_name ) const;
     const FuncInfo& get_func( const std::string& functione_name ) const;
 
     const StructInfo* parent;
-    const std::vector<FieldInfo> fields;
-    const std::vector<FuncInfo> functions;
-    const bool is_object;
-    const ObjectData object_data;
+    std::vector<FieldInfo> fields;
+    std::vector<FuncInfo> functions;
+    bool is_object;
+    ObjectData object_data;
 };
+
+void enum_set_underlying_type( EnumInfo& type, const TypeInfo* underlying_type );
+void enum_add_value( EnumInfo& type, const std::string& name, i64 value );
 
 struct EnumInfo : public TypeInfo
 {
-    EnumInfo( const std::string& _name, const TypeInfo* _underlying_type, std::map<std::string, i64> _enum_values );
+    static const TypeInfo_Type ti_type = TypeInfo_Type::ENUM;
+
+    EnumInfo();
 
     std::map<std::string, i64> enum_values;
     const TypeInfo* underlying_type;
@@ -200,7 +227,9 @@ struct TemplateInstance
 
 struct TemplateInfo : public TypeInfo
 {
-    TemplateInfo( const std::string& name );
+    static const TypeInfo_Type ti_type = TypeInfo_Type::TEMPLATE;
+
+    TemplateInfo();
     std::vector<TemplateInstance> instances;
 
     bool                has_instance( const std::array<TemplateParam, 4>& params );

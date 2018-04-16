@@ -2,18 +2,16 @@
 
 #include "types.h"
 #include "basic_types.h"
-#include <vector>
 
 #define GENERATE_BODY( Struct ) \
     Struct();                   \
-    Struct( u32 _type_id );     \
+    Struct( TypeId _type_id );  \
     Object* operator()() { return (Object*) this; }
 
 struct Object
 {
-    Object( u32 _object_id ) : object_id( _object_id ) {}
-    u32 object_id;
-    const StructInfo* get_type() { return s_object_types[ object_id ]; }
+    Object( TypeId _type_id ) : m_type_id( _type_id ) {}
+    TypeId m_type_id;
 };
 
 template<typename T>

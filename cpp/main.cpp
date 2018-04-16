@@ -2,14 +2,76 @@
 #include <string>
 #include <cstring>
 
-#include "object.h"
-#include "object_pools.h"
+#include "type_db.h"
 #include "test.h"
 
 using namespace std;
 
+u8 s_alloc_buffer[0x4000];
+u32 s_alloc_index = 0;
+TypeInfo& alloc_type( TypeInfo_Type type, void* buffer )
+{
+    TypeInfo* alloc = nullptr;
+    u8* byte_buffer = (u8*)buffer;
+    switch( type )
+    {
+    case TypeInfo_Type::SCALAR:
+        alloc = new (byte_buffer+s_alloc_index) ScalarInfo();
+        s_alloc_index += sizeof( ScalarInfo );
+        break;
+    case TypeInfo_Type::FUNCTION:
+        alloc = new (byte_buffer+s_alloc_index) FuncInfo();
+        s_alloc_index += sizeof( FuncInfo );
+        break;
+    case TypeInfo_Type::ENUM:
+        alloc = new (byte_buffer+s_alloc_index) EnumInfo();
+        s_alloc_index += sizeof( EnumInfo );
+        break;
+    case TypeInfo_Type::STRUCT:
+        alloc = new (byte_buffer+s_alloc_index) StructInfo();
+        s_alloc_index += sizeof( StructInfo );
+        break;
+    case TypeInfo_Type::TEMPLATE:
+        alloc = new (byte_buffer+s_alloc_index) TemplateInfo();
+        s_alloc_index += sizeof( TemplateInfo );
+        break;
+    }
+    return *alloc;
+}
+
+const TypeInfo* s_all_types[1024];
+void init_type_system()
+{
+    register_types( alloc_type, s_alloc_buffer );
+    u8* it = s_alloc_buffer;
+    while( it < s_alloc_buffer + s_alloc_index )
+    {
+        auto type = (TypeInfo*)it;
+        s_all_types[type->type_id.local_type] = type;
+        switch( type->type )
+        {
+        case TypeInfo_Type::SCALAR:
+            it += sizeof( ScalarInfo );
+            break;
+        case TypeInfo_Type::FUNCTION:
+            it += sizeof( FuncInfo );
+            break;
+        case TypeInfo_Type::ENUM:
+            it += sizeof( EnumInfo );
+            break;
+        case TypeInfo_Type::STRUCT:
+            it += sizeof( StructInfo );
+            break;
+        case TypeInfo_Type::TEMPLATE:
+            it += sizeof( TemplateInfo );
+            break;
+        }
+    }
+}
+
 int main( int, char** )
 {
+    init_type_system();
     for( const auto** typePtr = &s_all_types[0]; *typePtr != nullptr; ++typePtr )
     {
         const auto* type = *typePtr;
@@ -37,22 +99,10 @@ int main( int, char** )
 
             for( auto& func : struct_type->functions )
             {
-                cout << "\t" << func.name << " -> " << (func.return_type ? func.return_type->name : "void") << endl;
+                cout << "\t" << func.name << " -> " << (func.return_type ? func.return_type.type->name : "void") << endl;
             }
         }
     }
-
-    init_pool<MyStruct>();
-
-    auto struct_pool = get_pool<MyStruct>();
-    auto myStruct = struct_pool->Instantiate();
-
-    cout << myStruct->number1 << " " << to_string( myStruct->number2 ) << " " << to_string( myStruct->some_bool ) << " " << to_string( myStruct->some_char ) << endl;
-
-    struct_pool->Destroy( myStruct );
-    delete_pool<MyStruct>();
-
-    show_pool_report();
 
     return 0;
 }

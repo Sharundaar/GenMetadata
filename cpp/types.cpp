@@ -2,22 +2,26 @@
 
 #include "object.h"
 
-static u32 generate_type_id()
-{
-    static u32 s_high_type_id = 0;
-    return s_high_type_id++;
-}
+/* TypeInfo */
 
-TypeInfo::TypeInfo( const std::string& _name, u32 _size, TypeInfo_Type _type )
-    : name( _name ), size( _size ), type( _type ), type_id( generate_type_id() )
-{
-    if( type_id != INVALID_TYPE_ID )
-        s_all_types[type_id] = this;
-}
+void type_set_name( TypeInfo& type, const char* name ) { type.name = name; }
+void type_set_size( TypeInfo& type, const u32 size ) { type.size = size; }
+void type_set_id( TypeInfo& type, const TypeId type_id ) { type.type_id = type_id; }
 
-ScalarInfo::ScalarInfo( u32 _size, ScalarInfo_Type _scalar_type )
-    : TypeInfo( ScalarInfo::get_name( _size, _scalar_type ), _size, TypeInfo_Type::SCALAR ), scalar_type( _scalar_type )
+TypeInfo::TypeInfo( TypeInfo_Type _type )
+    : name(), size(), type( _type ), type_id()
+{}
+
+
+
+
+/* ScalarInfo */
+
+void scalar_set_type( ScalarInfo& scalar, ScalarInfo_Type type )
 {
+    scalar.scalar_type = type;
+    auto name = ScalarInfo::get_name( scalar.size, scalar.scalar_type );
+    type_set_name( scalar, name.c_str() );
 }
 
 std::string ScalarInfo::get_name( u32 _size, ScalarInfo_Type _scalar_type )
@@ -53,6 +57,16 @@ std::string ScalarInfo::get_name( u32 _size, ScalarInfo_Type _scalar_type )
     return ""; // should not reach here
 }
 
+ScalarInfo::ScalarInfo()
+    : TypeInfo( TypeInfo_Type::SCALAR ), scalar_type()
+{
+}
+
+
+
+
+/* FieldInfo */
+
 FieldInfo::FieldInfo()
     : name(), type(nullptr), template_type(), modifier(NONE), offset(0)
 {}
@@ -76,6 +90,16 @@ FieldInfo::FieldInfo( const std::string& _name, const TemplateInstanceRef _templ
 {
 }
 
+FieldInfo& FieldInfo::operator=( const FieldInfo& other )
+{
+    name          = other.name;
+    type          = other.type;
+    template_type = other.template_type;
+    modifier      = other.modifier;
+    offset        = other.offset;
+    return *this;
+}
+
 bool FieldInfo::operator==( const FieldInfo& other ) const
 {
     return ( this->type == other.type && this->template_type == other.template_type ) 
@@ -88,10 +112,33 @@ FieldInfo::operator bool() const
     return this->type != nullptr || this->template_type != nullptr;
 }
 
-EnumInfo::EnumInfo( const std::string& _name, const TypeInfo* _underlying_type, std::map<std::string, i64> _enum_values )
-    : TypeInfo( _name, _underlying_type->size, TypeInfo_Type::ENUM ), enum_values( _enum_values ), underlying_type( _underlying_type )
+
+
+
+/* FuncInfo */
+
+void func_set_return_type( FuncInfo& func, const FieldInfo _return_type ) { func.return_type = _return_type; }
+void func_add_parameter( FuncInfo& func, const FieldInfo _parameter ) { func.parameters.emplace_back( _parameter ); }
+
+FuncInfo::FuncInfo()
+    : TypeInfo( TypeInfo_Type::FUNCTION ), return_type(), parameters()
+{}
+
+
+/* EnumInfo */
+
+void enum_add_value( EnumInfo& type, const std::string& name, i64 value ) { type.enum_values.emplace( name, value ); }
+void enum_set_underlying_type( EnumInfo& type, const TypeInfo* underlying_type ) { type.underlying_type = underlying_type; }
+
+EnumInfo::EnumInfo()
+    : TypeInfo( TypeInfo_Type::ENUM ), enum_values(), underlying_type()
 {
 }
+
+
+
+
+/* StructInfo */
 
 static u32 generate_object_id()
 {
@@ -99,22 +146,27 @@ static u32 generate_object_id()
     return s_high_type_id++;
 }
 
-static bool is_object_func( const StructInfo* type_info )
-{
-    return type_info != nullptr && ( type_info == type_of<Object>() || is_object_func( type_info->parent ) );
-}
-
 static ObjectData from_struct_type( const StructInfo* struct_type )
 {
     if( !struct_type->is_object )
         return ObjectData{ INVALID_TYPE_ID };
     ObjectData data = ObjectData { generate_object_id() };
-    s_object_types[ data.object_id ] = struct_type;
     return data;
 }
 
-StructInfo::StructInfo( const std::string& _name, u32 _size, const StructInfo* _parent, std::vector<FieldInfo> _fields, std::vector<FuncInfo> _functions )
-    : TypeInfo( _name, _size, TypeInfo_Type::STRUCT ), parent(_parent), fields(_fields), functions(_functions), is_object( is_object_func(this) ), object_data( from_struct_type(this) )
+void struct_set_parent( StructInfo& type, const StructInfo* parent )
+{
+    type.parent = parent;
+    // type.is_object = is_object_func( &type );
+    type.object_data = from_struct_type( &type );
+}
+void struct_add_field( StructInfo& type, const FieldInfo& field ) { type.fields.emplace_back( field ); }
+void struct_add_function( StructInfo& type, const FuncInfo& function) { type.functions.emplace_back( function ); }
+void struct_is_object( StructInfo& type, bool is_object ) { type.is_object = is_object; }
+void struct_set_object_data( StructInfo& type, const ObjectData object_data ) { type.object_data = object_data; }
+
+StructInfo::StructInfo()
+    : TypeInfo( TypeInfo_Type::STRUCT ), parent(nullptr), fields(), functions(), is_object( false ), object_data()
 {
 }
 
@@ -133,26 +185,10 @@ const FieldInfo& StructInfo::get_field( const std::string& field_name ) const
     return errorField;
 }
 
-const TypeInfo* s_all_types[MAX_TYPE_COUNT];
-const StructInfo* s_object_types[MAX_TYPE_COUNT];
+/* TempalteInfo */
 
-const TypeInfo* get_type( u32 type_id )
-{
-    return s_all_types[ type_id ];
-}
-
-const StructInfo* get_object_type( u32 type_id )
-{
-    return s_object_types[ type_id ];
-}
-
-FuncInfo::FuncInfo( const std::string& _name, const TypeInfo* _return_type, const std::vector<FieldInfo>& _parameters )
-    : name(_name), return_type(_return_type), parameters( _parameters )
-{
-}
-
-TemplateInfo::TemplateInfo( const std::string& _name )
-    : TypeInfo( _name, 0, TypeInfo_Type::TEMPLATE ), instances()
+TemplateInfo::TemplateInfo()
+    : TypeInfo( TypeInfo_Type::TEMPLATE ), instances()
 {
 }
 
