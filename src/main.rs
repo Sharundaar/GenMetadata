@@ -636,7 +636,16 @@ fn get_register_types_header( prototype: bool ) -> String {
 }
 
 fn get_type_var( type_name: &String ) -> String {
-    format!( "type_{}", type_name.replace("->", "_deref").replace( "!", "_not" ).replace( "=", "_equal" ).replace( ">", "_sup" ).replace( "<", "_inf" ) ).replace("()", "_cast")
+    format!( "type_{}", type_name.replace("->", "_deref")
+                                 .replace( "!", "_not" )
+                                 .replace( "=", "_equal" )
+                                 .replace( ">", "_sup" )
+                                 .replace( "<", "_inf" )
+                                 .replace("()", "_cast")
+                                 .replace("*", "_mul")
+                                 .replace("-", "_sub")
+                                 .replace("+", "_add")
+                                 .replace("/", "_div") )
 }
 
 fn write_type_instantiation( type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
@@ -701,7 +710,7 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
             let enum_type = type_info._enum.as_ref().unwrap();
             writeln!( file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
             writeln!( file, "{}type_set_id( {}, type_id<{}>() );", indent, type_var, type_info.name )?;
-            writeln!( file, "{}enum_set_underlying_type( {}, &type_{} );", indent, type_var, enum_type.underlying_type.replace("int", "u32") )?;
+            writeln!( file, "{}enum_set_underlying_type( {}, &type_{} );", indent, type_var, enum_type.underlying_type.replace("int", "i32").replace("ushort", "u16") )?;
             for ( name, &(value, _) ) in &enum_type.enum_values {
                 writeln!( file, "{}enum_add_value( {}, \"{}\", {} );", indent, type_var, name, value )?;
             }
@@ -1009,7 +1018,7 @@ fn main() {
 
     let tu = index.parser( &"main.h" )
                 .arguments( &arguments )
-                .parse().unwrap();
+                .parse()
     
     for entity in tu.get_entity().get_children().iter().filter( |e| !e.is_in_system_header() ) {
         match from_entity( &entity ) {
