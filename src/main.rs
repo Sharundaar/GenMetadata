@@ -35,11 +35,17 @@ struct TypeInfo {
     _enum:       Option<TypeInfoEnum>,
     _func:       Option<TypeInfoFunc>,
     _template:   Option<TypeInfoTemplate>,
+    _typedef:    Option<TypeInfoTypedef>,
 }
 
 #[derive(Clone, Default)]
 struct TypeInfoTemplate {
 
+}
+
+#[derive(Clone, Default)]
+struct TypeInfoTypedef {
+    source_type: String
 }
 
 #[derive(Clone)]
@@ -122,6 +128,7 @@ enum TypeInfoType<'a> {
     Enum( &'a TypeInfoEnum ),
     Func( &'a TypeInfoFunc ),
     Template( &'a TypeInfoTemplate ),
+    Typedef( &'a TypeInfoTypedef ),
 }
 
 fn get_type_info_type<'a>( type_info: &'a TypeInfo ) -> TypeInfoType<'a> {
@@ -132,6 +139,7 @@ fn get_type_info_type<'a>( type_info: &'a TypeInfo ) -> TypeInfoType<'a> {
     else if let Some( ref sub_type ) = type_info._template { Template( sub_type ) }
     else if let Some( ref sub_type ) = type_info._field { Field( sub_type ) }
     else if let Some( ref sub_type ) = type_info._func { Func( sub_type ) }
+    else if let Some( ref sub_type ) = type_info._typedef { Typedef( sub_type ) }
     else { None }
 }
 
@@ -235,6 +243,11 @@ impl TypeInfo {
 
     fn make_func( mut self, return_type: Option<Box<TypeInfo>> ) -> TypeInfo {
         self._func = Some( TypeInfoFunc{ return_type: return_type, ..Default::default() } );
+        self
+    }
+
+    fn make_typedef( mut self ) -> TypeInfo {
+        self._typedef = Some( TypeInfoTypedef{ ..Default::default() } );
         self
     }
 }
@@ -479,6 +492,14 @@ fn from_entity_classtemplate( entity: &Entity ) -> Result<TypeInfo, GMError> {
     Ok( type_info )
 }
 
+fn from_entity_typedefdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
+    let underlying_type = entity.get_type().unwrap().get_canonical_type().get_display_name();
+
+    println!( "underlying_type name: {}", underlying_type );
+
+    Err( GMError::info( "from_entity_typedefdecl implementation".to_string() ) )
+}
+
 fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
     match entity.get_kind() {
         EntityKind::StructDecl    => from_entity_structdecl( entity ),
@@ -489,6 +510,7 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
         EntityKind::ParmDecl      => from_entity_fielddecl( entity, None ),
         EntityKind::Method        => from_entity_funcdecl( entity ),
         EntityKind::ClassTemplate => from_entity_classtemplate( entity ),
+        EntityKind::TypedefDecl   => from_entity_typedefdecl( entity ),
         kind => Err( GMError::info( format!( "Unhandled entity kind: {:?}", kind) ) ),
     }
 }
@@ -527,11 +549,12 @@ fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, GMError> {
     for type_info in type_info_vec.iter() {
         use TypeInfoType::*;
         match get_type_info_type( &type_info ) {
-            Scalar(_) => { writeln!( file, "    s{},", type_info.name.replace("::", "_") )?; }
-            Struct(_) => { writeln!( file, "    {},", type_info.name.replace("::", "_") )?; }
-            Enum(_)   => { writeln!( file, "    {},", type_info.name.replace("::", "_") )?; }
-            Func(_)   => {}
-            Field(_)  => {}
+            Scalar(_)  => { writeln!( file, "    s{},", get_type_id( &type_info.name ) )?; }
+            Typedef(_) => { writeln!( file, "    {},", get_type_id(  &type_info.name ) )?; }
+            Struct(_)  => { writeln!( file, "    {},", get_type_id(  &type_info.name ) )?; }
+            Enum(_)    => { writeln!( file, "    {},", get_type_id(  &type_info.name ) )?; }
+            Func(_)    => {}
+            Field(_)   => {}
             Template(_) => {}
             None => {}
         };
@@ -636,7 +659,9 @@ fn get_register_types_header( prototype: bool ) -> String {
 }
 
 fn get_type_var( type_name: &String ) -> String {
-    format!( "type_{}", type_name.replace("->", "_deref")
+    format!( "type_{}", type_name.replace("::", "_")
+                                 .replace("->", "_deref")
+                                 .replace(" ", "_")
                                  .replace( "!", "_not" )
                                  .replace( "=", "_equal" )
                                  .replace( ">", "_sup" )
@@ -648,8 +673,12 @@ fn get_type_var( type_name: &String ) -> String {
                                  .replace("/", "_div") )
 }
 
+fn get_type_id( type_name: &String ) -> String {
+    format!( "type_{}", type_name.replace("::", "_").replace( " ", "_" ) )
+}
+
 fn write_type_instantiation( type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
-    let type_name = type_info.name.replace( "::", "_" );
+    let type_name = &type_info.name;
     let type_var  = get_type_var( &type_name );
     let indent    = " ".repeat( indent_count * 4 );
 
@@ -657,6 +686,12 @@ fn write_type_instantiation( type_info_map: &HashMap<String, &TypeInfo>, file: &
     match get_type_info_type( &type_info ) {
         Scalar(_) => {
             writeln!( file, "{}auto& {} = static_cast<ScalarInfo&>( alloc_type( TypeInfo_Type::SCALAR, alloc_type_param ) );", indent, type_var )?;
+        }
+
+        Typedef( typedef ) => {
+            let source_type_var = get_type_var( &typedef.source_type );
+
+            writeln!( file, "{}auto& {} = static_cast<decltype({})&>( alloc_type( {}.type, alloc_type_param ) );", indent, type_var, source_type_var, source_type_var )?;
         }
 
         Enum(_) => {
@@ -772,6 +807,8 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
             if !local_instantitation {writeln!( file, "{}}}", indent )?;}
         }
 
+        Typedef( typedef_type ) => {}
+
         Field( _field_type ) => {}
 
         None => {}
@@ -857,17 +894,16 @@ fn get_built_in_types() -> Vec<TypeInfo> {
     let built_ins: Vec<TypeInfo> = vec![
         TypeInfo::new("bool").make_scalar(BOOL),
         TypeInfo::new("char").make_scalar(CHAR),
-        TypeInfo::new("ulong").make_scalar(UINT),
-        TypeInfo::new("i8").make_scalar(INT),
-        TypeInfo::new("i16").make_scalar(INT),
-        TypeInfo::new("i32").make_scalar(INT),
-        TypeInfo::new("i64").make_scalar(INT),
-        TypeInfo::new("u8").make_scalar(UINT),
-        TypeInfo::new("u16").make_scalar(UINT),
-        TypeInfo::new("u32").make_scalar(UINT),
+        TypeInfo::new("int").make_scalar(INT),
+        TypeInfo::new("short").make_scalar(INT),
+        TypeInfo::new("long").make_scalar(INT),
+        TypeInfo::new("unsigned int").make_scalar(UINT),
+        TypeInfo::new("unsigned short").make_scalar(UINT),
+        TypeInfo::new("unsigned long").make_scalar(UINT),
+        TypeInfo::new("unsigned char").make_scalar(UINT),
         TypeInfo::new("u64").make_scalar(UINT),
-        TypeInfo::new("f32").make_scalar(FLOAT),
-        TypeInfo::new("f64").make_scalar(FLOAT),
+        TypeInfo::new("float").make_scalar(FLOAT),
+        TypeInfo::new("double").make_scalar(FLOAT),
         TypeInfo::new("std::vector").make_template(),
         TypeInfo::new("std::string").make_struct( &None, TypeInfoStructKind::Class ).make_builtin(),
     ];
@@ -916,18 +952,21 @@ fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
                                             func_type.parameters.iter().map( |p| format!("{} {}", p.name, p._field.as_ref().unwrap().field_name ) )
                                                                         .collect::<Vec<String>>().join(", ")); */
                 }
-            },
+            }
+
             Enum(type_enum) => {
                 println!("Enum: {} ({})", type_info.name, type_enum.underlying_type);
 
                 for (name, &(_, uval)) in &type_enum.enum_values {
                     println!("    {}: {}", name, uval);
                 }
-            },
+            }
+
             Scalar( type_scalar ) => {
                 print!("Type: {}", type_info.name);
                 println!( " ({})", type_scalar.scalar_type );
-            },
+            }
+
             Func( _type_func ) => {
                 /* @TODO: Report functions
                 let func_type = type_info._func.as_ref().unwrap();
@@ -950,13 +989,19 @@ fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
                     }
                 }
                 println!(")"); */
-            },
+            }
+
             Template(_type_template) => {
                 println!("Template: {}", type_info.name);
-            },
+            }
+
             Field( _type_field ) => {
                 println!("ERROR (for now...): Should not encounter field.");
-            },
+            }
+
+            Typedef( type_typedef ) => {
+
+            }
             None => { println!("ERROR: get_type_info_type should not return None...");}
         }
     }
@@ -1018,7 +1063,7 @@ fn main() {
 
     let tu = index.parser( &"main.h" )
                 .arguments( &arguments )
-                .parse()
+                .parse().unwrap(); // @Cleanup: should not unwrap this...
     
     for entity in tu.get_entity().get_children().iter().filter( |e| !e.is_in_system_header() ) {
         match from_entity( &entity ) {
