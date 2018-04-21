@@ -20,6 +20,9 @@ struct MyStruct2 : public Object
 
     const char* some_char;
     MyStruct myStruct;
+
+    unsigned int some_unsigned_int;
+    unsigned char some_unsigned_char;
 };
 
 class PhysicSystem
