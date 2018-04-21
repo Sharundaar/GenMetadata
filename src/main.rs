@@ -246,8 +246,8 @@ impl TypeInfo {
         self
     }
 
-    fn make_typedef( mut self ) -> TypeInfo {
-        self._typedef = Some( TypeInfoTypedef{ ..Default::default() } );
+    fn make_typedef( mut self, source_type: String ) -> TypeInfo {
+        self._typedef = Some( TypeInfoTypedef{ source_type: source_type } );
         self
     }
 }
@@ -494,10 +494,16 @@ fn from_entity_classtemplate( entity: &Entity ) -> Result<TypeInfo, GMError> {
 
 fn from_entity_typedefdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
     let underlying_type = entity.get_type().unwrap().get_canonical_type().get_display_name();
+    let type_name = entity.get_name().unwrap();
 
-    println!( "underlying_type name: {}", underlying_type );
+    let built_in_types = get_built_in_types();
+    for built_in in built_in_types {
+        if built_in.name == underlying_type {
+            return Ok( TypeInfo::new( type_name ).make_typedef( underlying_type ) );
+        }
+    }
 
-    Err( GMError::info( "from_entity_typedefdecl implementation".to_string() ) )
+    Err( GMError::info( format!( "Found typedef that's not a basic type {} -> {}.", underlying_type, type_name ) ) )
 }
 
 fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
@@ -549,13 +555,13 @@ fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, GMError> {
     for type_info in type_info_vec.iter() {
         use TypeInfoType::*;
         match get_type_info_type( &type_info ) {
-            Scalar(_)  => { writeln!( file, "    s{},", get_type_id( &type_info.name ) )?; }
-            Typedef(_) => { writeln!( file, "    {},", get_type_id(  &type_info.name ) )?; }
-            Struct(_)  => { writeln!( file, "    {},", get_type_id(  &type_info.name ) )?; }
-            Enum(_)    => { writeln!( file, "    {},", get_type_id(  &type_info.name ) )?; }
+            Scalar(_)  => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
+            Typedef(_) => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
+            Struct(_)  => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
+            Enum(_)    => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
             Func(_)    => {}
             Field(_)   => {}
-            Template(_) => {}
+            Template(_) => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
             None => {}
         };
     }
@@ -577,13 +583,17 @@ fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, GMError> {
     writeln!( file )?;
 
     for type_info in type_info_vec.iter() {
-        if type_info._func.is_some() { continue; }
-        if type_info._template.is_some() { continue; }
-        if type_info._scalar.is_some() {
-            writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (u32)LocalTypeId::s{} }}; }}", type_info.name, type_info.name.replace("::", "_") )?;
-        } else {
-            writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (u32)LocalTypeId::{} }}; }}", type_info.name, type_info.name.replace("::", "_") )?;
-        }
+        use TypeInfoType::*;
+        match get_type_info_type( &type_info ) {
+            Scalar(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (u32)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
+            Typedef(_) => { continue; }
+            Struct(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (u32)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
+            Enum(_)    => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (u32)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
+            Func(_)    => { continue; }
+            Field(_)   => { continue; }
+            Template(_) => { continue; }
+            None => {}
+        };
         writeln!( file, "constexpr TypeId type_id(const {}& obj) {{ return type_id<{}>(); }}", type_info.name, type_info.name )?;
         writeln!( file )?;
     }
@@ -673,8 +683,13 @@ fn get_type_var( type_name: &String ) -> String {
                                  .replace("/", "_div") )
 }
 
-fn get_type_id( type_name: &String ) -> String {
-    format!( "type_{}", type_name.replace("::", "_").replace( " ", "_" ) )
+fn get_type_id( type_info: &TypeInfo ) -> String {
+    let type_name = &type_info.name;
+    if type_info._scalar.is_some() {
+        format!( "s{}", type_name.replace("::", "_").replace( " ", "_" ) )
+    } else {
+        format!( "{}", type_name.replace("::", "_").replace( " ", "_" ) )
+    }
 }
 
 fn write_type_instantiation( type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
@@ -755,6 +770,7 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
 
         Template( _template_type ) => {
             writeln!( file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
+            writeln!( file, "{}type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", indent, type_var, get_type_id( &type_info ) )?;
             writeln!( file )?;
         }
 
@@ -807,7 +823,12 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
             if !local_instantitation {writeln!( file, "{}}}", indent )?;}
         }
 
-        Typedef( typedef_type ) => {}
+        Typedef( typedef_type ) => {
+            let source_type_var = get_type_var( &typedef_type.source_type );
+            writeln!( file, "{}{} = {};", indent, type_var, source_type_var )?;
+            writeln!( file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
+            writeln!( file, "{}type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", indent, type_var, get_type_id( &type_info ) )?;
+        }
 
         Field( _field_type ) => {}
 
@@ -897,11 +918,13 @@ fn get_built_in_types() -> Vec<TypeInfo> {
         TypeInfo::new("int").make_scalar(INT),
         TypeInfo::new("short").make_scalar(INT),
         TypeInfo::new("long").make_scalar(INT),
+        TypeInfo::new("long long").make_scalar(INT),
         TypeInfo::new("unsigned int").make_scalar(UINT),
         TypeInfo::new("unsigned short").make_scalar(UINT),
         TypeInfo::new("unsigned long").make_scalar(UINT),
-        TypeInfo::new("unsigned char").make_scalar(UINT),
-        TypeInfo::new("u64").make_scalar(UINT),
+        TypeInfo::new("unsigned long long").make_scalar(UINT),
+        TypeInfo::new("unsigned char").make_scalar(CHAR),
+        TypeInfo::new("signed char").make_scalar(CHAR),
         TypeInfo::new("float").make_scalar(FLOAT),
         TypeInfo::new("double").make_scalar(FLOAT),
         TypeInfo::new("std::vector").make_template(),
@@ -1000,7 +1023,7 @@ fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
             }
 
             Typedef( type_typedef ) => {
-
+                println!("Typedef: {} -> {}", type_typedef.source_type, type_info.name);
             }
             None => { println!("ERROR: get_type_info_type should not return None...");}
         }

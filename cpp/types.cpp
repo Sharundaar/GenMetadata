@@ -20,8 +20,6 @@ TypeInfo::TypeInfo( TypeInfo_Type _type )
 void scalar_set_type( ScalarInfo& scalar, ScalarInfo_Type type )
 {
     scalar.scalar_type = type;
-    auto name = ScalarInfo::get_name( scalar.size, scalar.scalar_type );
-    type_set_name( scalar, name.c_str() );
 }
 
 std::string ScalarInfo::get_name( u32 _size, ScalarInfo_Type _scalar_type )
