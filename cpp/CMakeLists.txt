@@ -3,7 +3,6 @@ project(TypeInfo VERSION 0.0.0)
 
 set(SRCS 
          basics.cpp
-         types.cpp
 )
 set(LIBRARY_OUTPUT_PATH ../bin)
 set(EXECUTABLE_OUTPUT_PATH ../bin)

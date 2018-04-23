@@ -659,7 +659,7 @@ fn write_struct_implementation( type_info_map: &HashMap<String, &TypeInfo>, file
 }
 
 fn get_register_types_header( prototype: bool ) -> String {
-    let mut result = "void register_types( TypeInfo& (*alloc_type) ( TypeInfo_Type, void* ), void* alloc_type_param )".to_string();
+    let mut result = "void register_types( TypeInfo& (*alloc_type) ( void* ), void* alloc_type_param, void* (*alloc_data) ( void*, uint32_t ), void* alloc_data_param )".to_string();
     if prototype {
         result.push_str( ";" );
     } else {
@@ -696,29 +696,34 @@ fn write_type_instantiation( type_info_map: &HashMap<String, &TypeInfo>, file: &
     let type_name = &type_info.name;
     let type_var  = get_type_var( &type_name );
     let indent    = " ".repeat( indent_count * 4 );
-
+    
     use TypeInfoType::*;
     match get_type_info_type( &type_info ) {
         Scalar(_) => {
-            writeln!( file, "{}auto& {} = static_cast<ScalarInfo&>( alloc_type( TypeInfo_Type::SCALAR, alloc_type_param ) );", indent, type_var )?;
+            writeln!( file, "{}auto& {} = alloc_type( alloc_type_param );", indent, type_var )?;
+            writeln!( file, "{}type_set_type( {}, TypeInfoType::Scalar );", indent, type_var )?;
         }
 
         Typedef( typedef ) => {
             let source_type_var = get_type_var( &typedef.source_type );
 
-            writeln!( file, "{}auto& {} = static_cast<decltype({})&>( alloc_type( {}.type, alloc_type_param ) );", indent, type_var, source_type_var, source_type_var )?;
+            writeln!( file, "{}auto& {} = alloc_type( alloc_type_param );", indent, type_var )?;
+            writeln!( file, "{}type_set_type( {}, {}.type );", indent, type_var, source_type_var )?;
         }
 
         Enum(_) => {
-            writeln!( file, "{}auto& {} = static_cast<EnumInfo&>( alloc_type( TypeInfo_Type::ENUM, alloc_type_param ) );", indent, type_var )?;
+            writeln!( file, "{}auto& {} = alloc_type( alloc_type_param );", indent, type_var )?;
+            writeln!( file, "{}type_set_type( {}, TypeInfoType::Enum );", indent, type_var )?;
         }
 
         Template(_) => {
-            writeln!( file, "{}auto& {} = static_cast<TemplateInfo&>( alloc_type( TypeInfo_Type::TEMPLATE, alloc_type_param ) );", indent, type_var )?;
+            writeln!( file, "{}auto& {} = alloc_type( alloc_type_param );", indent, type_var )?;
+            writeln!( file, "{}type_set_type( {}, TypeInfoType::Template );", indent, type_var )?;
         }
 
         Struct(_) => {
-            writeln!( file, "{}auto& {} = static_cast<StructInfo&>( alloc_type( TypeInfo_Type::STRUCT, alloc_type_param ) );", indent, type_var )?;
+            writeln!( file, "{}auto& {} = alloc_type( alloc_type_param );", indent, type_var )?;
+            writeln!( file, "{}type_set_type( {}, TypeInfoType::Struct );", indent, type_var )?;
         }
 
         Func(_) => {}
@@ -736,6 +741,14 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
     let type_var  = get_type_var( &type_name );
     let indent    = " ".repeat( indent_count * 4 );
 
+    fn open_braces( file: &mut File, indent: &str ) -> Result<(), std::io::Error> {
+        writeln!( file, "{}{{", indent )
+    }
+
+    fn close_braces( file: &mut File, indent: &str ) -> Result<(), std::io::Error> {
+        writeln!( file, "{}}}", indent )
+    }
+
     use TypeInfoType::*;
     match get_type_info_type( &type_info ) {
 
@@ -749,21 +762,27 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
                 CHAR => "CHAR",
             };
 
-            writeln!( file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
+            writeln!( file, "{}type_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, type_name )?;
             writeln!( file, "{}type_set_id( {}, type_id<{}>() );", indent, type_var, type_info.name )?;
-            writeln!( file, "{}type_set_size( {}, sizeof( {} ) );", indent, type_var, type_info.name )?;
-            writeln!( file, "{}scalar_set_type( {}, ScalarInfo_Type::{} );", indent, type_var, scalar_type_name )?;
+            writeln!( file, "{}scalar_set_size( {}.scalar_info, sizeof( {} ) );", indent, type_var, type_info.name )?;
+            writeln!( file, "{}scalar_set_type( {}.scalar_info, ScalarInfoType::{} );", indent, type_var, scalar_type_name )?;
             writeln!( file )?;
         }
 
         Enum( _enum_type ) => {
             let enum_type = type_info._enum.as_ref().unwrap();
-            writeln!( file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
+            writeln!( file, "{}type_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, type_name )?;
             writeln!( file, "{}type_set_id( {}, type_id<{}>() );", indent, type_var, type_info.name )?;
-            writeln!( file, "{}enum_set_underlying_type( {}, &type_{} );", indent, type_var, enum_type.underlying_type.replace("int", "i32").replace("ushort", "u16") )?;
+            writeln!( file, "{}enum_set_underlying_type( {}.enum_info, &type_{} );", indent, type_var, enum_type.underlying_type.replace("int", "i32").replace("ushort", "u16") )?;
+            open_braces( file, &indent )?;
+            writeln!( file, "{}    EnumValue* values = (EnumValue*)alloc_data( alloc_data_param, {} );", indent, enum_type.enum_values.len() )?;
+            let mut val = 0;
             for ( name, &(value, _) ) in &enum_type.enum_values {
-                writeln!( file, "{}enum_add_value( {}, \"{}\", {} );", indent, type_var, name, value )?;
+                writeln!( file, "{}    values[{}] = {{ copy_string( \"{}\" ), {} }};", indent, val, name, value )?;
+                val = val + 1;
             }
+            writeln!( file, "{}    enum_set_values( {}.enum_info, values, {} );", indent, type_var, enum_type.enum_values.len() )?;
+            close_braces( file, &indent )?;
 
             writeln!( file )?;
         }
@@ -794,6 +813,7 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
                 writeln!( file, "{}    struct_add_function( {}, {} );", indent, type_var, get_type_var( &func.name ) )?;
                 writeln!( file, "{}}}", indent )?;
             }
+            writeln!( file )?;
         }
 
         Func( func_type ) => {
@@ -821,6 +841,7 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
                 writeln!( file, "{});", indent )?;
             }
             if !local_instantitation {writeln!( file, "{}}}", indent )?;}
+            writeln!( file )?;
         }
 
         Typedef( typedef_type ) => {
@@ -828,6 +849,7 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
             writeln!( file, "{}{} = {};", indent, type_var, source_type_var )?;
             writeln!( file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
             writeln!( file, "{}type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", indent, type_var, get_type_id( &type_info ) )?;
+            writeln!( file )?;
         }
 
         Field( _field_type ) => {}
@@ -867,6 +889,13 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError
     }
 
     writeln!( &mut file, "{}", get_register_types_header( false ) )?;
+
+    writeln!( file, "    auto copy_string = [&]( const char* str ) {{
+        uint32_t len = strlen( str );
+        char* result = (char*)alloc_data( alloc_data_param, len+1 );
+        strcpy( result, str );
+        return result;
+    }};")?;
 
     use std::iter::FromIterator;
     let type_info_map: HashMap<String, &TypeInfo> = HashMap::from_iter(type_info_vec.iter().map(|x| (x.name.clone(), x)));

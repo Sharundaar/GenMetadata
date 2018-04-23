@@ -2,6 +2,8 @@
 #include <string>
 #include <cstring>
 
+#define TYPES_IMPLEMENTATION
+#include "types.h"
 #include "type_db.h"
 #include "test.h"
 
