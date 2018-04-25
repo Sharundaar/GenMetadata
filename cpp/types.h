@@ -90,7 +90,7 @@ struct ObjectData
 struct StructInfo
 {
     const FieldInfo* get_field( const char* field_name ) const;
-    const FuncInfo*  get_func( const char* func_name ) const;
+    const TypeInfo*  get_func( const char* func_name ) const;
 
     const TypeInfo* parent = nullptr;
     uint32_t        size   = 0;
@@ -98,7 +98,7 @@ struct StructInfo
     FieldInfo*   fields = nullptr;
     unsigned int field_count = 0;
 
-    FuncInfo* functions = nullptr;
+    TypeInfo* functions = nullptr;
     unsigned int function_count = 0;
     
     bool is_object = false;
@@ -175,8 +175,7 @@ void scalar_set_type( ScalarInfo& type, ScalarInfoType scalar_type );
 void scalar_set_size( ScalarInfo& type, uint32_t size );
 
 void func_set_name( FuncInfo& type, const char* _name );
-void func_set_return_type( FuncInfo& type, const FieldInfo _return_type );
-void func_add_parameter( FuncInfo& type, const FieldInfo _parameter );
+void func_set_return_type( FuncInfo& type, const FieldInfo return_type );
 void func_set_parameters( FuncInfo& type, FieldInfo* fields, uint32_t count );
 
 void struct_set_size( StructInfo& type, uint32_t size );
@@ -194,6 +193,12 @@ void template_set_instances( TemplateInfo& type, TemplateInstance* instances, ui
 void type_set_name( TypeInfo& type, const char* name );
 void type_set_type( TypeInfo& type, TypeInfoType type_type );
 void type_set_id( TypeInfo& type, TypeId type_id );
+
+void field_set_name( FieldInfo& field, const char* name );
+void field_set_type( FieldInfo& field, const TypeInfo* type );
+void field_set_template_instance_ref( FieldInfo& field, TemplateInstanceRef ref );
+void field_set_offset( FieldInfo& field, uint32_t offset );
+void field_set_modifiers( FieldInfo& field, FieldInfoModifier modifiers );
 
 #endif
 
@@ -317,6 +322,11 @@ FieldInfo::operator bool() const
     return this->type != nullptr || this->template_type != nullptr;
 }
 
+void field_set_name( FieldInfo& field, const char* name ) { field.name = name; }
+void field_set_type( FieldInfo& field, const TypeInfo* type ) { field.type = type; }
+void field_set_template_instance_ref( FieldInfo& field, TemplateInstanceRef ref ) { field.ref = ref; }
+void field_set_offset( FieldInfo& field, uint32_t offset ) { field.offset = offset; }
+void field_set_modifiers( FieldInfo& field, FieldInfoModifier modifiers ) { field.modifier = modifiers; }
 
 int32_t TemplateInfo::get_instance_internal( const TemplateParam* params, uint32_t param_count )
 {
