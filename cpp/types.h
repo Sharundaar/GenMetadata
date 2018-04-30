@@ -138,7 +138,7 @@ struct TemplateInfo
     TemplateInstance* instances;
 
     bool                has_instance( const TemplateParam* params, uint32_t param_count );
-    TemplateInstanceRef get_instance( const TemplateParam* params, uint32_t param_count, bool create_if_needed = false );
+    TemplateInstanceRef get_instance( const TemplateParam* params, uint32_t param_count );
 
 private:
     int32_t get_instance_internal( const TemplateParam* params, unsigned int param_count );
@@ -373,7 +373,7 @@ bool TemplateInfo::has_instance( const TemplateParam* params, uint32_t param_cou
     return get_instance_internal( params, param_count ) >= 0;
 }
 
-TemplateInstanceRef TemplateInfo::get_instance( const TemplateParam* params, uint32_t param_count, bool create_if_needed )
+TemplateInstanceRef TemplateInfo::get_instance( const TemplateParam* params, uint32_t param_count )
 {
     return TemplateInstanceRef{ this, get_instance_internal( params, param_count ) };
 }

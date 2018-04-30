@@ -40,7 +40,7 @@ struct TypeInfo {
 
 #[derive(Clone, Default)]
 struct TypeInfoTemplate {
-
+    instances: Vec<Vec<TypeInfo>>,
 }
 
 #[derive(Clone, Default)]
@@ -521,9 +521,7 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
     }
 }
 
-fn write_header( type_info_vec : &Vec<TypeInfo> ) -> Result<bool, GMError> {
-    use std::iter::FromIterator;
-    let type_info_map: HashMap<String, &TypeInfo> = HashMap::from_iter(type_info_vec.iter().map(|x| (x.name.clone(), x)));
+fn write_header( type_info_vec : &Vec<TypeInfo>, type_info_map: &HashMap<String, &TypeInfo> ) -> Result<bool, GMError> {
 
     let mut file = File::create( "type_db.h" )?;
 
@@ -790,30 +788,31 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
 
             if !struct_type.fields.is_empty() {
                 open_braces( file, indent_count )?;
-                writeln!( file, "{}    auto values = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", indent, struct_type.fields.len() )?;
+                writeln!( file, "{}    auto struct_fields = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", indent, struct_type.fields.len() )?;
                 let mut idx = 0;
                 for field in &struct_type.fields {
                     open_braces( file, indent_count+1 )?;
                     write_type_implementation( type_info_map, file, field, true, indent_count+2 )?;
-                    writeln!( file, "{}        values[{}] = {};", indent, type_var, get_field_var( &field.name, &field._field ) )?;
+                    writeln!( file, "{}        struct_fields[{}] = {};", indent, type_var, get_field_var( &field.name, &field._field ) )?;
                     idx = idx + 1;
+                    close_braces( file, indent_count+1 )?;
                 }
-                writeln!(file, "{}    struct_set_fields( {}, values, {} );", indent, type_var, struct_type.fields.len() )?;
+                writeln!(file, "{}    struct_fields( {}, values, {} );", indent, type_var, struct_type.fields.len() )?;
                 close_braces( file, indent_count )?;
             }
 
             if !struct_type.functions.is_empty() {
                 open_braces( file, indent_count )?;
-                writeln!( file, "{}    auto values = (FuncInfo*)alloc_data( alloc_data_param, sizeof(TypeInfo) * {} );", indent, struct_type.functions.len() )?;
+                writeln!( file, "{}    auto struct_functions = (FuncInfo*)alloc_data( alloc_data_param, sizeof(TypeInfo) * {} );", indent, struct_type.functions.len() )?;
                 let mut idx = 0;
                 for func in &struct_type.functions {
                     open_braces( file, indent_count+1 )?;
                     write_type_implementation( type_info_map, file, func, true, indent_count+2 )?;
-                    writeln!( file, "{}        values[{}] = {};", indent, idx, get_type_var( &func.name ) )?;
+                    writeln!( file, "{}        struct_functions[{}] = {};", indent, idx, get_type_var( &func.name ) )?;
                     close_braces( file, indent_count+1 )?;
                     idx = idx + 1;
                 }
-                writeln!( file, "{}    struct_set_functions( {}, values, {} );", indent, type_var, struct_type.functions.len() )?;
+                writeln!( file, "{}    struct_set_functions( {}, struct_functions, {} );", indent, type_var, struct_type.functions.len() )?;
                 close_braces( file, indent_count )?;
             }
             writeln!( file )?;
@@ -878,17 +877,18 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
                 if registered_type._struct.is_some() {
                     writeln!( file, "{}field_set_type( {}, &{} );", indent, type_var, get_type_var( &registered_type.name ) )?;
                 } else if let Some( ref template_args ) = field_type.templates {
-                    writeln!( file, "{}field_set_template_instance_ref( {}, {}.get_instance( {{", indent, type_var, type_var )?;
+                    let template_src_type_var = get_type_var( &type_info.name );
+                    writeln!( file, "{}TemplateParam {}_template_params[{}];", indent, type_var, template_args.len() )?;
+                    let mut i = 0;
                     for arg in template_args {
-                        /*
-                        writeln!( file, "{indent}TemplateParam {{ ", indent = indent_str )?;
-                        write_field_implementation( type_info_map, file, &arg, indent+1 )?;
-                        writeln!( file, "{indent}, {some_value} }},", indent = indent_str, some_value = 0 )?;
-                        */
+                        open_braces( file, indent_count );
+                        write_type_implementation( type_info_map, file, &arg, true, indent_count + 1 )?;
+                        let field_var = get_field_var( &arg.name, &arg._field );
+                        writeln!( file, "    {}{}_template_params[{}] = TemplateParam{{ {}, 0 }};", indent, type_var, i, field_var );
+                        close_braces( file, indent_count );
+                        i = i + 1;
                     }
-                    // writeln!( file, "{indent}}}, true ), (FieldInfo_Modifier) ({modifier}), {offset} )", indent = indent_str, modifier = build_modifier_string( &field_type ), offset = field_type.offset )?;
-                } else {
-                    writeln!( file, "{}field_set_type( {}, &{} );", indent, type_var, type_var )?;
+                    writeln!( file, "{}field_set_template_instance_ref( {}, {}.get_instance( {}_template_params ) );", indent, type_var, template_src_type_var, type_var )?;
                 }
             }
         }
@@ -899,7 +899,7 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
     Ok(true)
 }
 
-fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError> {
+fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<String, &TypeInfo> ) -> Result<bool, GMError> {
     let mut file = File::create( "type_db.cpp" )?;
 
     // includes
@@ -935,9 +935,6 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo> ) -> Result<bool, GMError
         strcpy( result, str );
         return result;
     }};")?;
-
-    use std::iter::FromIterator;
-    let type_info_map: HashMap<String, &TypeInfo> = HashMap::from_iter(type_info_vec.iter().map(|x| (x.name.clone(), x)));
 
     for type_info in type_info_vec.iter() {
         write_type_instantiation( &type_info_map, &mut file, type_info, 1 )?;
@@ -1158,7 +1155,9 @@ fn main() {
     
     for entity in tu.get_entity().get_children().iter().filter( |e| !e.is_in_system_header() ) {
         match from_entity( &entity ) {
-            Ok( type_info ) => { type_info_vec.push( type_info ); },
+            Ok( type_info ) =>  {
+                type_info_vec.push( type_info );
+            },
             Err( error ) => {
                 if options.verbose {
                     println!( "({}): {}", get_source_file( &entity ).unwrap_or_else(|| String::from("NoFile")), error ); 
@@ -1167,17 +1166,43 @@ fn main() {
         };
     }
 
+    use std::iter::FromIterator;
+    let type_info_map: HashMap<String, usize> = HashMap::from_iter(type_info_vec.iter().enumerate().map(|(i, x)| (x.name.clone(), i)));
+    
+    fn explore_fields_rec( type_info_vec: &mut Vec<TypeInfo>, type_info_map: &HashMap<String, usize>, type_info: &TypeInfo ) {
+        // let field_info = type_info._field.as_ref().unwrap();
+        if let Some( recorded_type_id ) = type_info_map.get( &type_info.name )
+        {
+            let mut recorded_type = type_info_vec.get_mut( *recorded_type_id ).unwrap();
+            recorded_type.name.push_str("no");
+
+        }
+        /*if let Some( recorded_type_template ) = recorded_type._template {
+            
+        }*/
+    }
+    
+    for type_info in &type_info_vec {
+        let struct_info = type_info._struct.as_ref().unwrap();
+        for field in &struct_info.fields {
+            explore_fields_rec( &mut type_info_vec, &type_info_map, &field );
+        }
+    }
+
+    let type_info_vec = type_info_vec;
+    let type_info_map: HashMap<String, &TypeInfo> = HashMap::from_iter(type_info_vec.iter().map(|x| (x.name.clone(), x)));
+
     if !options.no_report {
-        show_report_types(&type_info_vec);
+        show_report_types( &type_info_vec );
     }
 
     if !options.no_output {
-        match write_header( &type_info_vec ) {
+        match write_header( &type_info_vec, &type_info_map ) {
             Ok(_) => {},
             Err( err ) => { println!( "{}", err ); },
         }
 
-        match write_implementation( &type_info_vec ) {
+        match write_implementation( &type_info_vec, &type_info_map ) {
             Ok(_) => {},
             Err( err ) => { println!( "{}", err ); },
         }
