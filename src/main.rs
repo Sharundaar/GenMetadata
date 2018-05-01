@@ -40,7 +40,6 @@ struct TypeInfo {
 
 #[derive(Clone, Default, PartialEq, Eq)]
 struct TypeInfoTemplate {
-    instances: Vec<Vec<TypeInfo>>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -671,7 +670,7 @@ fn get_type_id( type_info: &TypeInfo ) -> String {
     }
 }
 
-fn write_type_instantiation( _type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
+fn write_type_instantiation( file: &mut File, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
     let type_name = &type_info.name;
     let type_var  = get_field_var( &type_name, &type_info._field );
     let indent    = " ".repeat( indent_count * 4 );
@@ -718,7 +717,7 @@ fn write_type_instantiation( _type_info_map: &HashMap<String, &TypeInfo>, file: 
     Ok(true)
 }
 
-fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, type_info: &TypeInfo, local_instantitation: bool, indent_count: usize ) -> Result<bool, GMError> {
+fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, file: &mut File, type_info: &TypeInfo, local_instantitation: bool, indent_count: usize ) -> Result<bool, GMError> {
     let type_name = type_info.name.replace( "::", "_" );
     let type_var  = get_field_var( &type_name, &type_info._field );
     let indent    = " ".repeat( indent_count * 4 );
@@ -792,7 +791,7 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
                 let mut idx = 0;
                 for field in &struct_type.fields {
                     open_braces( file, indent_count+1 )?;
-                    write_type_implementation( type_info_map, file, field, true, indent_count+2 )?;
+                    write_type_implementation( type_info_map, template_instances, file, field, true, indent_count+2 )?;
                     writeln!( file, "{}        struct_fields[{}] = {};", indent, type_var, get_field_var( &field.name, &field._field ) )?;
                     idx = idx + 1;
                     close_braces( file, indent_count+1 )?;
@@ -807,7 +806,7 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
                 let mut idx = 0;
                 for func in &struct_type.functions {
                     open_braces( file, indent_count+1 )?;
-                    write_type_implementation( type_info_map, file, func, true, indent_count+2 )?;
+                    write_type_implementation( type_info_map, template_instances, file, func, true, indent_count+2 )?;
                     writeln!( file, "{}        struct_functions[{}] = {};", indent, idx, get_type_var( &func.name ) )?;
                     close_braces( file, indent_count+1 )?;
                     idx = idx + 1;
@@ -826,14 +825,14 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
             if local_instantitation {
                 writeln!( file, "{}FuncInfo {};", indent, type_var )?;
             } else {
-                write_type_instantiation( type_info_map, file, type_info, indent_count )?;
+                write_type_instantiation( file, type_info, indent_count )?;
             }
 
             writeln!( file, "{}type_set_name( {}, \"{}\" );", indent, type_var, func_name )?;
             if let Some( ref return_type ) = type_func.return_type {
                 open_braces( file, indent_count )?;
                 let return_type = &return_type;
-                write_type_implementation( type_info_map, file, return_type, true, indent_count+1 )?;
+                write_type_implementation( type_info_map, template_instances, file, return_type, true, indent_count+1 )?;
                 writeln!( file, "{}    func_set_return_type( {}, {} )", indent, type_var, get_field_var( &return_type.name, &return_type._field ) )?;
                 close_braces( file, indent_count )?;
             }
@@ -844,7 +843,7 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
                 let mut idx = 0;
                 for param in &type_func.parameters {
                     open_braces( file, indent_count+1 )?;
-                    write_type_implementation( type_info_map, file, param, true, indent_count+2 )?;
+                    write_type_implementation( type_info_map, template_instances, file, param, true, indent_count+2 )?;
                     writeln!( file, "{}        values[{}] = {};", indent, idx, get_field_var( &param.name, &param._field ) )?;
                     close_braces( file, indent_count+1 )?;
                     idx = idx + 1;
@@ -882,7 +881,7 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
                     let mut i = 0;
                     for arg in template_args {
                         open_braces( file, indent_count )?;
-                        write_type_implementation( type_info_map, file, &arg, true, indent_count + 1 )?;
+                        write_type_implementation( type_info_map, template_instances, file, &arg, true, indent_count + 1 )?;
                         let field_var = get_field_var( &arg.name, &arg._field );
                         writeln!( file, "    {}{}_template_params[{}] = TemplateParam{{ {}, 0 }};", indent, type_var, i, field_var )?;
                         close_braces( file, indent_count )?;
@@ -899,7 +898,7 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
     Ok(true)
 }
 
-fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<String, &TypeInfo> ) -> Result<bool, GMError> {
+fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>> ) -> Result<bool, GMError> {
     let mut file = File::create( "type_db.cpp" )?;
 
     // includes
@@ -937,13 +936,13 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<
     }};")?;
 
     for type_info in type_info_vec.iter() {
-        write_type_instantiation( &type_info_map, &mut file, type_info, 1 )?;
+        write_type_instantiation( &mut file, type_info, 1 )?;
     }
 
     writeln!( file )?;
 
     for type_info in type_info_vec.iter() {
-        write_type_implementation( &type_info_map, &mut file, type_info, false, 1 )?;
+        write_type_implementation( type_info_map, template_instances, &mut file, type_info, false, 1 )?;
     }
 
     writeln!( file, "}}" )?;
@@ -1165,9 +1164,8 @@ fn main() {
             },
         };
     }
-
     let type_info_vec = type_info_vec;
-    
+ 
     fn explore_fields_rec( template_instances: &mut HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo ) {
         let field_info = type_info._field.as_ref().unwrap();
         if let Some( ref template_args ) = field_info.templates {
@@ -1184,18 +1182,18 @@ fn main() {
         }
     }
     
-    let mut template_instance: HashMap<String, Vec<Vec<TypeInfo>>> = HashMap::new();
+    let mut template_instances: HashMap<String, Vec<Vec<TypeInfo>>> = HashMap::new();
     for type_info in &type_info_vec {
         if type_info._struct.is_some() {
             let struct_info = type_info._struct.as_ref().unwrap();
             for field in &struct_info.fields {
-                explore_fields_rec( &mut template_instance, &field );
+                explore_fields_rec( &mut template_instances, &field );
             }
         }
     }
+    let template_instances = template_instances;
 
-    let template_instance = template_instance;
-    for (k, v) in &template_instance {
+    for (k, v) in &template_instances {
         println!( "{} instances: ", k );
         for inst in v.iter() {
             for f in inst.iter() {
@@ -1218,7 +1216,7 @@ fn main() {
             Err( err ) => { println!( "{}", err ); },
         }
 
-        match write_implementation( &type_info_vec, &type_info_map ) {
+        match write_implementation( &type_info_vec, &type_info_map, &template_instances ) {
             Ok(_) => {},
             Err( err ) => { println!( "{}", err ); },
         }
