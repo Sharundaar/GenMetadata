@@ -24,7 +24,7 @@ struct Options {
     no_report: bool,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq )]
 struct TypeInfo {
     name: String,
     source_file: Option<String>,
@@ -38,24 +38,24 @@ struct TypeInfo {
     _typedef:    Option<TypeInfoTypedef>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 struct TypeInfoTemplate {
     instances: Vec<Vec<TypeInfo>>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 struct TypeInfoTypedef {
     source_type: String
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 enum TypeInfoStructKind
 {
     Struct,
     Class,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 struct TypeInfoStruct {
     fields: Vec<TypeInfo>,
     functions: Vec<TypeInfo>,
@@ -64,7 +64,7 @@ struct TypeInfoStruct {
     has_default_constructor: bool,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 struct TypeInfoField {
     field_name: String,
     templates: Option<Vec<TypeInfo>>,
@@ -75,7 +75,7 @@ struct TypeInfoField {
     is_ref: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 enum ScalarInfo {
     INT,
     UINT,
@@ -84,18 +84,18 @@ enum ScalarInfo {
     CHAR
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 struct TypeInfoScalar {
     scalar_type: ScalarInfo
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 struct TypeInfoEnum {
     underlying_type: String,
     enum_values: HashMap<String, (i64, u64)>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 struct TypeInfoFunc {
     return_type: Option<Box<TypeInfo>>,
     parameters:  Vec<TypeInfo>,
@@ -826,7 +826,7 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
             if local_instantitation {
                 writeln!( file, "{}FuncInfo {};", indent, type_var )?;
             } else {
-                write_type_instantiation( type_info_map, file, type_info, indent_count );
+                write_type_instantiation( type_info_map, file, type_info, indent_count )?;
             }
 
             writeln!( file, "{}type_set_name( {}, \"{}\" );", indent, type_var, func_name )?;
@@ -881,11 +881,11 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: 
                     writeln!( file, "{}TemplateParam {}_template_params[{}];", indent, type_var, template_args.len() )?;
                     let mut i = 0;
                     for arg in template_args {
-                        open_braces( file, indent_count );
+                        open_braces( file, indent_count )?;
                         write_type_implementation( type_info_map, file, &arg, true, indent_count + 1 )?;
                         let field_var = get_field_var( &arg.name, &arg._field );
-                        writeln!( file, "    {}{}_template_params[{}] = TemplateParam{{ {}, 0 }};", indent, type_var, i, field_var );
-                        close_braces( file, indent_count );
+                        writeln!( file, "    {}{}_template_params[{}] = TemplateParam{{ {}, 0 }};", indent, type_var, i, field_var )?;
+                        close_braces( file, indent_count )?;
                         i = i + 1;
                     }
                     writeln!( file, "{}field_set_template_instance_ref( {}, {}.get_instance( {}_template_params ) );", indent, type_var, template_src_type_var, type_var )?;
@@ -1166,30 +1166,46 @@ fn main() {
         };
     }
 
-    use std::iter::FromIterator;
-    let type_info_map: HashMap<String, usize> = HashMap::from_iter(type_info_vec.iter().enumerate().map(|(i, x)| (x.name.clone(), i)));
-    
-    fn explore_fields_rec( type_info_vec: &mut Vec<TypeInfo>, type_info_map: &HashMap<String, usize>, type_info: &TypeInfo ) {
-        // let field_info = type_info._field.as_ref().unwrap();
-        if let Some( recorded_type_id ) = type_info_map.get( &type_info.name )
-        {
-            let mut recorded_type = type_info_vec.get_mut( *recorded_type_id ).unwrap();
-            recorded_type.name.push_str("no");
-
-        }
-        /*if let Some( recorded_type_template ) = recorded_type._template {
-            
-        }*/
-    }
-    
-    for type_info in &type_info_vec {
-        let struct_info = type_info._struct.as_ref().unwrap();
-        for field in &struct_info.fields {
-            explore_fields_rec( &mut type_info_vec, &type_info_map, &field );
-        }
-    }
-
     let type_info_vec = type_info_vec;
+    
+    fn explore_fields_rec( template_instances: &mut HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo ) {
+        let field_info = type_info._field.as_ref().unwrap();
+        if let Some( ref template_args ) = field_info.templates {
+            let template_type = &type_info.name;
+            {
+                let mut instances = template_instances.entry( template_type.clone() ).or_insert_with(|| vec!() );
+                if !instances.iter().any( |inst| inst == template_args ) {
+                    instances.push( template_args.clone() );
+                }
+            }
+            for arg in template_args.iter() {
+                explore_fields_rec( template_instances, &arg );
+            }
+        }
+    }
+    
+    let mut template_instance: HashMap<String, Vec<Vec<TypeInfo>>> = HashMap::new();
+    for type_info in &type_info_vec {
+        if type_info._struct.is_some() {
+            let struct_info = type_info._struct.as_ref().unwrap();
+            for field in &struct_info.fields {
+                explore_fields_rec( &mut template_instance, &field );
+            }
+        }
+    }
+
+    let template_instance = template_instance;
+    for (k, v) in &template_instance {
+        println!( "{} instances: ", k );
+        for inst in v.iter() {
+            for f in inst.iter() {
+                print!( "{} ", f.name );
+            }
+            println!();
+        }
+    }
+
+    use std::iter::FromIterator;
     let type_info_map: HashMap<String, &TypeInfo> = HashMap::from_iter(type_info_vec.iter().map(|x| (x.name.clone(), x)));
 
     if !options.no_report {
