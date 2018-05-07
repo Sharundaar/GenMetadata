@@ -588,7 +588,7 @@ fn write_header( type_info_vec : &Vec<TypeInfo>, type_info_map: &HashMap<String,
     writeln!( file, "#include \"types.h\"")?;
     writeln!( file )?;
 
-    writeln!( file, "{}", get_register_types_header( true ) )?;
+    writeln!( file, "{};", get_register_types_header() )?;
     writeln!( file )?;
 
     for type_info in type_info_vec.iter().filter( |t| t._enum.is_some() ) {
@@ -687,14 +687,8 @@ fn write_struct_implementation( type_info_map: &HashMap<String, &TypeInfo>, file
     Ok( true )
 }
 
-fn get_register_types_header( prototype: bool ) -> String {
-    let mut result = "void register_types( TypeInfo& (*alloc_type) ( void* ), void* alloc_type_param, void* (*alloc_data) ( void*, uint32_t ), void* alloc_data_param )".to_string();
-    if prototype {
-        result.push_str( ";" );
-    } else {
-        result.push_str("\n{");
-    }
-    result
+fn get_register_types_header() -> &'static str {
+    "void register_types( TypeInfo& (*alloc_type) ( void* ), void* alloc_type_param, void* (*alloc_data) ( void*, uint32_t ), void* alloc_data_param )"
 }
 
 fn get_field_var( type_name: &String, field_type: &Option<TypeInfoField> ) -> String {
@@ -730,43 +724,35 @@ fn get_type_id( type_info: &TypeInfo ) -> String {
     }
 }
 
-fn write_type_instantiation( file: &mut File, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
+fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
     let type_name = &type_info.name;
     let type_var  = get_field_var( &type_name, &type_info._field );
-    let indent    = " ".repeat( indent_count * 4 );
     
     use TypeInfoType::*;
     match get_type_info_type( &type_info ) {
         Scalar(_) => {
-            writeln!( file, "{}auto& {} = alloc_type( alloc_type_param );", indent, type_var )?;
-            writeln!( file, "{}type_set_type( {}, TypeInfoType::Scalar );", indent, type_var )?;
+            gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Scalar );", type=type_var )?;
         }
 
         Typedef( typedef ) => {
             let source_type_var = get_type_var( &typedef.source_type );
-
-            writeln!( file, "{}auto& {} = alloc_type( alloc_type_param );", indent, type_var )?;
-            writeln!( file, "{}type_set_type( {}, {}.type );", indent, type_var, source_type_var )?;
+            gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, {source}.type );", type=type_var, source=source_type_var )?;
         }
 
         Enum(_) => {
-            writeln!( file, "{}auto& {} = alloc_type( alloc_type_param );", indent, type_var )?;
-            writeln!( file, "{}type_set_type( {}, TypeInfoType::Enum );", indent, type_var )?;
+            gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Enum );", type=type_var )?;
         }
 
         Template(_) => {
-            writeln!( file, "{}auto& {} = alloc_type( alloc_type_param );", indent, type_var )?;
-            writeln!( file, "{}type_set_type( {}, TypeInfoType::Template );", indent, type_var )?;
+            gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Template );", type=type_var )?;
         }
 
         Struct(_) => {
-            writeln!( file, "{}auto& {} = alloc_type( alloc_type_param );", indent, type_var )?;
-            writeln!( file, "{}type_set_type( {}, TypeInfoType::Struct );", indent, type_var )?;
+            gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Struct );", type=type_var )?;
         }
 
         Func(_) => {
-            writeln!( file, "{}auto& {} = alloc_type( alloc_type_param );", indent, type_var )?;
-            writeln!( file, "{}type_set_type( {}, TypeInfoType::Function );", indent, type_var )?;
+            gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var )?;
         }
 
         Field(_) => {}
@@ -833,7 +819,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 gm_begin_scope!( context )?;
                 let mut instance_index = 0;
                 for instance in instances.iter() {
-                    // writeln!( context.file, "    {}auto ")
+                    // gm_writeln!( context, "auto ")
                     for param in instance.iter() {
 
                     }
@@ -894,7 +880,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             if local_instantitation {
                 writeln!( context.file, "{}FuncInfo {};", indent, type_var )?;
             } else {
-                write_type_instantiation( &mut context.file, type_info, indent_count )?;
+                write_type_instantiation( context, type_info, indent_count )?;
             }
 
             writeln!( context.file, "{}type_set_name( {}, \"{}\" );", indent, type_var, func_name )?;
@@ -996,7 +982,8 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<
         writeln!( context.file )?;
     }
 
-    writeln!( context.file, "{}", get_register_types_header( false ) )?;
+    gm_writeln!( context, "{}", get_register_types_header() )?;
+    gm_begin_scope!( context )?;
 
     writeln!( context.file, "    auto copy_string = [&]( const char* str ) {{
         uint32_t len = strlen( str );
@@ -1006,7 +993,7 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<
     }};")?;
 
     for type_info in type_info_vec.iter() {
-        write_type_instantiation( &mut context.file, type_info, 1 )?;
+        write_type_instantiation( &mut context, type_info, 1 )?;
     }
 
     writeln!( context.file )?;
@@ -1015,9 +1002,8 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<
         write_type_implementation( &mut context, type_info_map, template_instances, type_info, false, 1 )?;
     }
 
-    writeln!( context.file, "}}" )?;
-
-    writeln!( context.file )?;
+    gm_end_scope!( context )?;
+    gm_writeln!( context )?;
 
     for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() && has_object_parent( t._struct.as_ref().unwrap(), &type_info_map ) ) {
         write_struct_implementation( &type_info_map, &mut context.file, type_info )?;
