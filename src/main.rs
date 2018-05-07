@@ -141,29 +141,49 @@ macro_rules! gm_end_scope {
     ($context:ident) => {$context.end_scope()};
 }
 
+macro_rules! gm_error {
+    ($fmt:expr) => {Err(GMError::error( String::from($fmt)))};
+    ($fmt:expr, $($arg:tt)*) => {Err(GMError::error(format!($fmt,$($arg)*)))};
+}
+
+macro_rules! gm_warning {
+    ($fmt:expr) => {Err(GMError::warning( String::from($fmt)))};
+    ($fmt:expr, $($arg:tt)*) => {Err(GMError::warning(format!($fmt, $($arg)*)))};
+}
+
+macro_rules! gm_info {
+    ($fmt:expr) => {Err(GMError::info( String::from( $fmt ) ))};
+    ($fmt:expr, $($arg:tt)*) => {Err(GMError::info( format!( $fmt, $($arg)* ) ) ) };
+}
+
 impl ExportContext {
 
     fn new(file: File, indent_str: String) -> ExportContext {
         ExportContext{ indentation: String::new(), indent_str: indent_str, file: file, id_pool: 0 }
     }
 
-    fn begin_scope(&mut self) -> std::io::Result<()> {
+    fn begin_scope(&mut self) -> Result<(), GMError> {
         writeln!( self.file, "{}{{", self.indentation)?;
         self.indentation.push_str( &self.indent_str );
         Ok(())
     }
     
-    fn end_scope(&mut self) -> std::io::Result<()> {
+    fn end_scope(&mut self) -> Result<(), GMError> {
         let len = self.indentation.len();
-        self.indentation.truncate( len - self.indent_str.len() );
-        writeln!( self.file, "{}}}", self.indentation )?;
-        Ok(())
+        if len == 0 {
+            gm_error!( "Called end_scope without corresponding begin_scope." )
+        } else {
+            self.indentation.truncate( len - self.indent_str.len() );
+            writeln!( self.file, "{}}}", self.indentation )?;
+            Ok(())
+        }
     }
     
     fn writeln(&mut self, string: String) -> std::io::Result<()> {
         writeln!( self.file, "{}{}", self.indentation, string )
     }
 
+    #[allow(dead_code)]
     fn write(&mut self, string: String) -> std::io::Result<()> {
         write!( self.file, "{}{}", self.indentation, string )
     }
@@ -208,7 +228,6 @@ impl GMError {
         GMError{ gravity: gravity, kind: kind, description: description }
     }
 
-    #[allow(dead_code)]
     fn warning( description: String ) -> GMError {
         GMError{ gravity: GMErrorGravity::WARNING, kind: GMErrorKind::GENERIC, description: description }
     }
@@ -350,7 +369,7 @@ fn get_struct_kind_from_entity_kind( ent_kind: EntityKind ) -> TypeInfoStructKin
 }
 
 fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
-    if !entity.is_definition() { return Err( GMError::info( "not definition".to_string() ) ); }
+    if !entity.is_definition() { return gm_info!( "not definition" ); }
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( _ ) ) => {
             let mut type_info = TypeInfo::new( name ).make_struct( &None, get_struct_kind_from_entity_kind( entity.get_kind() ) );
@@ -474,7 +493,7 @@ fn from_entity_fielddecl( entity: &Entity, parent_type: Option<&Type> ) -> Resul
 }
 
 fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
-    if !entity.is_definition() { return Err( GMError::info( "not definition".to_string() ) ); }
+    if !entity.is_definition() { return gm_info!( "not definition" ); }
     match ( entity.is_scoped(), entity.get_type() ) {
         ( true, Some( type_def ) ) => {
             let mut type_info = TypeInfo::new( type_def.get_display_name() ).make_enum( &entity.get_enum_underlying_type().unwrap().get_display_name() );
@@ -490,13 +509,13 @@ fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
             let type_info = type_info;
             Ok( type_info )
         },
-        ( false, Some( type_def ) ) => Err( GMError::warning( format!("Enum {} is unscoped, can't generate TypeInfo for unscoped enums.", type_def.get_display_name() ) ) ),
-        _ => Err( GMError::error( "Couldn't generate TypeInfo from this EnumDecl.".to_string() ) ),
+        ( false, Some( type_def ) ) => gm_warning!( "Enum {} is unscoped, can't generate TypeInfo for unscoped enums.", type_def.get_display_name() ),
+        _ => gm_error!( "Couldn't generate TypeInfo from this EnumDecl." ),
     }
 }
 
 fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
-    if let Some( _ ) = entity.get_template() { return Err( GMError::info( "we don't handle template func.".to_string() ) ); }
+    if let Some( _ ) = entity.get_template() { return gm_info!( "we don't handle template func." ); }
 
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( ent_type ) ) => {
@@ -724,7 +743,7 @@ fn get_type_id( type_info: &TypeInfo ) -> String {
     }
 }
 
-fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
+fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo ) -> Result<bool, GMError> {
     let type_name = &type_info.name;
     let type_var  = get_field_var( &type_name, &type_info._field );
     
@@ -819,14 +838,17 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 gm_begin_scope!( context )?;
                 let mut instance_index = 0;
                 for instance in instances.iter() {
-                    // gm_writeln!( context, "auto ")
+                    let instance_param_var_name = "params".to_string();
+                    gm_begin_scope!( context )?;
+                    gm_writeln!( context, "auto {} = (TemplateParam*)alloc_data( alloc_data_param, sizeof(TemplateParam) * {} );", instance_param_var_name, instance.len() )?;
                     for param in instance.iter() {
 
                     }
+                    gm_end_scope!( context )?;
                     instance_index = instance_index + 1;
                 }
                 gm_end_scope!( context )?;
-                gm_writeln!( context, "template_set_instances( {}, {} );", type_var, instances_var_name )?;
+                gm_writeln!( context, "template_set_instances( {}, {}, {} );", type_var, instances_var_name, instances.len() )?;
                 gm_end_scope!( context )?;
             }
             gm_writeln!( context )?;
@@ -880,7 +902,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             if local_instantitation {
                 writeln!( context.file, "{}FuncInfo {};", indent, type_var )?;
             } else {
-                write_type_instantiation( context, type_info, indent_count )?;
+                write_type_instantiation( context, type_info )?;
             }
 
             writeln!( context.file, "{}type_set_name( {}, \"{}\" );", indent, type_var, func_name )?;
@@ -993,7 +1015,7 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<
     }};")?;
 
     for type_info in type_info_vec.iter() {
-        write_type_instantiation( &mut context, type_info, 1 )?;
+        write_type_instantiation( &mut context, type_info )?;
     }
 
     writeln!( context.file )?;
