@@ -127,6 +127,20 @@ struct ExportContext {
     id_pool:     u64,
 }
 
+macro_rules! gm_writeln {
+    ($context:ident) => {$context.newline()};
+    ($context:ident, $fmt:expr) => {$context.writeln( format!( $fmt ) )};
+    ($context:ident, $fmt:expr, $($arg:tt)*) => {$context.writeln( format!( $fmt, $($arg)* ) )};
+}
+
+macro_rules! gm_begin_scope {
+    ($context:ident) => {$context.begin_scope()};
+}
+
+macro_rules! gm_end_scope {
+    ($context:ident) => {$context.end_scope()};
+}
+
 impl ExportContext {
 
     fn new(file: File, indent_str: String) -> ExportContext {
@@ -781,42 +795,42 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 CHAR => "CHAR",
             };
 
-            context.writeln( format!("type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name ) )?;
-            context.writeln( format!("type_set_id( {}, type_id<{}>() );", type_var, type_info.name ) )?;
-            context.writeln( format!("scalar_set_size( {}.scalar_info, sizeof( {} ) );", type_var, type_info.name ) )?;
-            context.writeln( format!("scalar_set_type( {}.scalar_info, ScalarInfoType::{} );", type_var, scalar_type_name ) )?;
-            context.newline()?;
+            gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
+            gm_writeln!( context, "type_set_id( {}, type_id<{}>() );", type_var, type_info.name )?;
+            gm_writeln!( context, "scalar_set_size( {}.scalar_info, sizeof( {} ) );", type_var, type_info.name )?;
+            gm_writeln!( context, "scalar_set_type( {}.scalar_info, ScalarInfoType::{} );", type_var, scalar_type_name )?;
+            gm_writeln!( context )?;
         }
 
         Enum( _enum_type ) => {
             let enum_type = type_info._enum.as_ref().unwrap();
-            writeln!( context.file, "{}type_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, type_name )?;
-            writeln!( context.file, "{}type_set_id( {}, type_id<{}>() );", indent, type_var, type_info.name )?;
-            writeln!( context.file, "{}enum_set_underlying_type( {}.enum_info, &type_{} );", indent, type_var, enum_type.underlying_type.replace("int", "i32").replace("ushort", "u16") )?;
+            gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
+            gm_writeln!( context, "type_set_id( {}, type_id<{}>() );", type_var, type_info.name )?;
+            gm_writeln!( context, "enum_set_underlying_type( {}.enum_info, &type_{} );", type_var, enum_type.underlying_type.replace("int", "i32").replace("ushort", "u16") )?;
 
             if !enum_type.enum_values.is_empty() {
-                context.begin_scope()?;
-                context.writeln( format!( "auto values = (EnumValue*)alloc_data( alloc_data_param, sizeof(EnumValue) * {} );", enum_type.enum_values.len() ) )?;
+                gm_begin_scope!( context )?;
+                gm_writeln!( context, "auto values = (EnumValue*)alloc_data( alloc_data_param, sizeof(EnumValue) * {} );", enum_type.enum_values.len() )?;
                 let mut val = 0;
                 for ( name, &(value, _) ) in &enum_type.enum_values {
-                    context.writeln( format!( "values[{}] = {{ copy_string( \"{}\" ), {} }};", val, name, value ) )?;
+                    gm_writeln!( context, "values[{}] = {{ copy_string( \"{}\" ), {} }};", val, name, value )?;
                     val = val + 1;
                 }
-                context.writeln( format!( "enum_set_values( {}.enum_info, values, {} );", type_var, enum_type.enum_values.len() ) )?;
-                context.end_scope()?;
+                gm_writeln!( context, "enum_set_values( {}.enum_info, values, {} );", type_var, enum_type.enum_values.len() )?;
+                gm_end_scope!( context )?;
             }
 
             context.newline()?;
         }
 
         Template( _template_type ) => {
-            context.writeln( format!( "type_set_name( {}, \"{}\" );", type_var, type_name ) )?;
-            context.writeln( format!( "type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) ) )?;
+            gm_writeln!( context, "type_set_name( {}, \"{}\" );", type_var, type_name )?;
+            gm_writeln!( context, "type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
             if let Some(instances) = template_instances.get( type_name ) {
                 let instances_var_name = format!( "{}_instances", type_var );
-                context.begin_scope()?;
-                context.writeln( format!( "auto {} = (TemplateInstance*)alloc_data( alloc_data_param, sizeof(TemplateInstance) * {} );", instances_var_name, instances.len() ) )?;
-                context.begin_scope()?;
+                gm_begin_scope!( context )?;
+                gm_writeln!( context, "auto {} = (TemplateInstance*)alloc_data( alloc_data_param, sizeof(TemplateInstance) * {} );", instances_var_name, instances.len() )?;
+                gm_begin_scope!( context )?;
                 let mut instance_index = 0;
                 for instance in instances.iter() {
                     // writeln!( context.file, "    {}auto ")
@@ -825,11 +839,11 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                     }
                     instance_index = instance_index + 1;
                 }
-                context.end_scope()?;
-                context.writeln( format!("template_set_instances( {}, {} );", type_var, instances_var_name ) )?;
-                context.end_scope()?;
+                gm_end_scope!( context )?;
+                gm_writeln!( context, "template_set_instances( {}, {} );", type_var, instances_var_name )?;
+                gm_end_scope!( context )?;
             }
-            writeln!( context.file )?;
+            gm_writeln!( context )?;
         }
 
         Struct( struct_type ) => {
