@@ -764,7 +764,7 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo )
         Enum(_)             => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Enum );",     type=type_var ),
         Template(_)         => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Template );", type=type_var ),
         Struct(_)           => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Struct );",   type=type_var ),
-        Func(_)             => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var ),
+        Func(_)             => Ok(()), // @TODO: Bring this back when we figure out how to handle overload properly: gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var ),
         Field(_)            => Ok(()),
         None                => Ok(()),
     }
@@ -781,6 +781,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
     use TypeInfoType::*;
     match get_type_info_type( &type_info ) {
 
+// Impl Scalar
         Scalar( scalar_type ) => {
             use ScalarInfo::*;
             let scalar_type_name = match scalar_type.scalar_type {
@@ -798,6 +799,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             gm_writeln!( context )?;
         }
 
+// Impl Enum
         Enum( _enum_type ) => {
             let enum_type = type_info._enum.as_ref().unwrap();
             gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
@@ -819,6 +821,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             context.newline()?;
         }
 
+// Impl Template
         Template( _template_type ) => {
             gm_writeln!( context, "type_set_name( {}, \"{}\" );", type_var, type_name )?;
             gm_writeln!( context, "type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
@@ -834,11 +837,9 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                     gm_writeln!( context, "auto {} = (TemplateParam*)alloc_data( alloc_data_param, sizeof(TemplateParam) * {} );", instance_param_var_name, instance.len() )?;
                     let mut param_index = 0;
                     for param in instance.iter() {
-                        gm_begin_scope!( context )?;
                         context.type_var_override( format!( "{}[{}].info", instance_param_var_name, param_index ) );
-                        write_type_implementation( context, type_info_map, template_instances, &param, true, indent_count + 4 )?;
+                        write_type_implementation( context, type_info_map, template_instances, &param, true, indent_count + 3 )?;
                         context.remove_type_var_override();
-                        gm_end_scope!( context )?;
                         param_index += 1;
                     }
                     gm_end_scope!( context )?;
@@ -851,6 +852,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             gm_writeln!( context )?;
         }
 
+// Impl Struct
         Struct( struct_type ) => {
             writeln!( context.file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
             writeln!( context.file, "{}type_set_id( {}, type_id<{}>() );", indent, type_var, type_info.name )?;
@@ -891,18 +893,20 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             writeln!( context.file )?;
         }
 
+// Impl Func
         Func( func_type ) => {
-            if !local_instantitation {writeln!( context.file, "{}{{", indent )?;}  
+
             let type_func = func_type;
             let func_name = &type_info.name;
 
-            if local_instantitation {
-                writeln!( context.file, "{}FuncInfo {};", indent, type_var )?;
+            if context.type_var_override.is_none() {
+                gm_begin_scope!( context )?;
+                gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var )?;
             } else {
                 write_type_instantiation( context, type_info )?;
             }
 
-            writeln!( context.file, "{}type_set_name( {}, \"{}\" );", indent, type_var, func_name )?;
+            gm_writeln!( context, "type_set_name( {}, \"{}\" );", type_var, func_name )?;
             if let Some( ref return_type ) = type_func.return_type {
                 context.begin_scope()?;
                 let return_type = &return_type;
@@ -913,23 +917,26 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
 
             if !type_func.parameters.is_empty() {
                 context.begin_scope()?;
-                writeln!( context.file, "{}    auto* values = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", indent, type_func.parameters.len() )?;
+                let func_parameters_type_var = format!( "{}_params", type_var );
+                gm_writeln!( context, "auto* {} = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", func_parameters_type_var, type_func.parameters.len() )?;
                 let mut idx = 0;
                 for param in &type_func.parameters {
-                    context.begin_scope()?;
-                    write_type_implementation( context, type_info_map, template_instances, param, true, indent_count+2 )?;
-                    writeln!( context.file, "{}        values[{}] = {};", indent, idx, get_field_var( &param.name, &param._field ) )?;
-                    context.end_scope()?;
+                    gm_begin_scope!( context )?;
+                    context.type_var_override( format!("{}[{}]", func_parameters_type_var, idx ) );
+                    write_type_implementation( context, type_info_map, template_instances, param, true, indent_count+3 )?;
+                    context.remove_type_var_override();
+                    gm_end_scope!( context )?;
                     idx = idx + 1;
                 }
-                writeln!( context.file, "{}    func_set_parameters( {}, values, {} );", indent, type_var, type_func.parameters.len() )?;
+                gm_writeln!( context, "func_set_parameters( {}, {}, {} );", type_var, func_parameters_type_var, type_func.parameters.len() )?;
                 context.end_scope()?;
             }
 
-            if !local_instantitation {writeln!( context.file, "{}}}", indent )?;}
-            writeln!( context.file )?;
+            if context.type_var_override.is_none() { gm_end_scope!( context )?; }
+            gm_writeln!( context )?;
         }
 
+// Impl Typedef
         Typedef( typedef_type ) => {
             let source_type_var = get_type_var( &typedef_type.source_type );
             writeln!( context.file, "{}{} = {};", indent, type_var, source_type_var )?;
@@ -938,6 +945,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             writeln!( context.file )?;
         }
 
+// Impl Field
         Field( field_type ) => {
             if context.type_var_override.is_none() { writeln!( context.file, "{}FieldInfo {};", indent, type_var )?; };
             writeln!( context.file, "{}field_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, field_type.field_name)?;
