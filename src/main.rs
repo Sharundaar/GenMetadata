@@ -749,14 +749,14 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo )
     
     use TypeInfoType::*;
     match get_type_info_type( &type_info ) {
-        Scalar(_) => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Scalar );", type=type_var ),
-        Typedef( typedef ) => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, {source}.type );", type=type_var, source=get_type_var( &typedef.source_type ) ),
-        Enum(_) => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Enum );", type=type_var ),
-        Template(_) => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Template );", type=type_var ),
-        Struct(_) => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Struct );", type=type_var ),
-        Func(_) => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var ),
-        Field(_) => Ok(()),
-        None => Ok(()),
+        Scalar(_)           => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Scalar );",   type=type_var ),
+        Typedef( typedef )  => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, {source}.type );",          type=type_var, source=get_type_var( &typedef.source_type ) ),
+        Enum(_)             => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Enum );",     type=type_var ),
+        Template(_)         => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Template );", type=type_var ),
+        Struct(_)           => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Struct );",   type=type_var ),
+        Func(_)             => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var ),
+        Field(_)            => Ok(()),
+        None                => Ok(()),
     }
 }
 
@@ -819,11 +819,15 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                     let instance_param_var_name = "params".to_string();
                     gm_begin_scope!( context )?;
                     gm_writeln!( context, "auto {} = (TemplateParam*)alloc_data( alloc_data_param, sizeof(TemplateParam) * {} );", instance_param_var_name, instance.len() )?;
+                    let mut param_index = 0;
                     for param in instance.iter() {
-
+                        gm_begin_scope!( context )?;
+                        write_type_implementation( context, type_info_map, template_instances, &param, true, indent_count + 3 )?;
+                        gm_end_scope!( context )?;
+                        param_index += 1;
                     }
                     gm_end_scope!( context )?;
-                    instance_index = instance_index + 1;
+                    instance_index += 1;
                 }
                 gm_end_scope!( context )?;
                 gm_writeln!( context, "template_set_instances( {}, {}, {} );", type_var, instances_var_name, instances.len() )?;
