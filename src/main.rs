@@ -125,6 +125,8 @@ struct ExportContext {
     indentation: String,
     indent_str:  String,
     id_pool:     u64,
+
+    type_var_override: Option<String>,
 }
 
 macro_rules! gm_writeln {
@@ -159,7 +161,7 @@ macro_rules! gm_info {
 impl ExportContext {
 
     fn new(file: File, indent_str: String) -> ExportContext {
-        ExportContext{ indentation: String::new(), indent_str: indent_str, file: file, id_pool: 0 }
+        ExportContext{ indentation: String::new(), indent_str: indent_str, file: file, id_pool: 0, type_var_override: None }
     }
 
     fn begin_scope(&mut self) -> Result<(), GMError> {
@@ -196,6 +198,14 @@ impl ExportContext {
         let res = base + &self.id_pool.to_string();
         self.id_pool += 1;
         res
+    }
+
+    fn type_var_override( &mut self, tv: String ) {
+        self.type_var_override = Some( tv );
+    }
+
+    fn remove_type_var_override( &mut self ) {
+        self.type_var_override = None;
     }
 }
 
@@ -680,14 +690,14 @@ fn write_header( type_info_vec : &Vec<TypeInfo>, type_info_map: &HashMap<String,
 fn build_modifier_string( field: &TypeInfoField ) -> String {
     let mut result: Vec<&str> = vec!();
 
-    if field.is_const   { result.push( "FieldInfo_Modifier::CONSTANT" ); }
-    if field.is_ptr     { result.push( "FieldInfo_Modifier::POINTER" ); }
-    if field.is_private { result.push( "FieldInfo_Modifier::PRIVATE" ); }
-    if field.is_ref     { result.push( "FieldInfo_Modifier::REFERENCE" ); }
+    if field.is_const   { result.push( "FieldInfoModifier::CONSTANT" ); }
+    if field.is_ptr     { result.push( "FieldInfoModifier::POINTER" ); }
+    if field.is_private { result.push( "FieldInfoModifier::PRIVATE" ); }
+    if field.is_ref     { result.push( "FieldInfoModifier::REFERENCE" ); }
 
 
     match result.is_empty() {
-        true  => String::from( "FieldInfo_Modifier::NONE" ),
+        true  => String::from( "FieldInfoModifier::NONE" ),
         false => result.join( " | " )
     }
 }
@@ -762,7 +772,10 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo )
 
 fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo, local_instantitation: bool, indent_count: usize ) -> Result<bool, GMError> {
     let type_name = &type_info.name;
-    let type_var  = get_field_var( &type_name, &type_info._field );
+    let type_var  = match context.type_var_override {
+        Option::None => get_field_var( &type_name, &type_info._field ),
+        Some( ref otv ) => otv.clone(),
+    };
     let indent    = " ".repeat( indent_count * 4 );
 
     use TypeInfoType::*;
@@ -822,7 +835,9 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                     let mut param_index = 0;
                     for param in instance.iter() {
                         gm_begin_scope!( context )?;
-                        write_type_implementation( context, type_info_map, template_instances, &param, true, indent_count + 3 )?;
+                        context.type_var_override( format!( "{}[{}].info", instance_param_var_name, param_index ) );
+                        write_type_implementation( context, type_info_map, template_instances, &param, true, indent_count + 4 )?;
+                        context.remove_type_var_override();
                         gm_end_scope!( context )?;
                         param_index += 1;
                     }
@@ -924,12 +939,12 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
         }
 
         Field( field_type ) => {
-            writeln!( context.file, "{}FieldInfo {};", indent, type_var )?;
+            if context.type_var_override.is_none() { writeln!( context.file, "{}FieldInfo {};", indent, type_var )?; };
             writeln!( context.file, "{}field_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, field_type.field_name)?;
             if field_type.offset != 0 {
                 writeln!( context.file, "{}field_set_offset( {}, {} );", indent, type_var, field_type.offset )?;
             }
-            writeln!( context.file, "{}field_set_modifiers( {}, (FieldInfo_Modifier) ({}) );", indent, type_var, build_modifier_string( &field_type ) )?;
+            writeln!( context.file, "{}field_set_modifiers( {}, (FieldInfoModifier) ({}) );", indent, type_var, build_modifier_string( &field_type ) )?;
 
             if let Some( registered_type ) = type_info_map.get( &type_info.name ) {
                 if registered_type._struct.is_some() {
