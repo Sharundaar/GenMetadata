@@ -743,43 +743,21 @@ fn get_type_id( type_info: &TypeInfo ) -> String {
     }
 }
 
-fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo ) -> Result<bool, GMError> {
+fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo ) -> std::io::Result<()> {
     let type_name = &type_info.name;
     let type_var  = get_field_var( &type_name, &type_info._field );
     
     use TypeInfoType::*;
     match get_type_info_type( &type_info ) {
-        Scalar(_) => {
-            gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Scalar );", type=type_var )?;
-        }
-
-        Typedef( typedef ) => {
-            let source_type_var = get_type_var( &typedef.source_type );
-            gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, {source}.type );", type=type_var, source=source_type_var )?;
-        }
-
-        Enum(_) => {
-            gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Enum );", type=type_var )?;
-        }
-
-        Template(_) => {
-            gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Template );", type=type_var )?;
-        }
-
-        Struct(_) => {
-            gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Struct );", type=type_var )?;
-        }
-
-        Func(_) => {
-            gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var )?;
-        }
-
-        Field(_) => {}
-
-        None => {}
-    };
-
-    Ok(true)
+        Scalar(_) => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Scalar );", type=type_var ),
+        Typedef( typedef ) => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, {source}.type );", type=type_var, source=get_type_var( &typedef.source_type ) ),
+        Enum(_) => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Enum );", type=type_var ),
+        Template(_) => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Template );", type=type_var ),
+        Struct(_) => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Struct );", type=type_var ),
+        Func(_) => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var ),
+        Field(_) => Ok(()),
+        None => Ok(()),
+    }
 }
 
 fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo, local_instantitation: bool, indent_count: usize ) -> Result<bool, GMError> {
