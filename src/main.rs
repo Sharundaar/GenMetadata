@@ -1004,12 +1004,15 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<
     gm_writeln!( context, "{}", get_register_types_header() )?;
     gm_begin_scope!( context )?;
 
-    writeln!( context.file, "    auto copy_string = [&]( const char* str ) {{
+    gm_writeln!( context, "auto copy_string = [&]( const char* str ) -> const char* {{
         uint32_t len = strlen( str );
+        if( len == 0 )
+            return nullptr;
         char* result = (char*)alloc_data( alloc_data_param, len+1 );
         strcpy( result, str );
         return result;
     }};")?;
+    gm_writeln!( context )?;
 
     for type_info in type_info_vec.iter() {
         write_type_instantiation( &mut context, type_info )?;
