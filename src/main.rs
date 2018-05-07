@@ -112,11 +112,57 @@ enum GMErrorGravity {
     ERROR,
 }
 
-#[allow(dead_code)]
+
 struct GMError {
     gravity: GMErrorGravity,
-    kind: GMErrorKind,
     description: String,
+
+    #[allow(dead_code)] kind: GMErrorKind,
+}
+
+struct ExportContext {
+    file: File,
+    indentation: String,
+    indent_str:  String,
+    id_pool:     u64,
+}
+
+impl ExportContext {
+
+    fn new(file: File, indent_str: String) -> ExportContext {
+        ExportContext{ indentation: String::new(), indent_str: indent_str, file: file, id_pool: 0 }
+    }
+
+    fn begin_scope(&mut self) -> std::io::Result<()> {
+        writeln!( self.file, "{}{{", self.indentation)?;
+        self.indentation.push_str( &self.indent_str );
+        Ok(())
+    }
+    
+    fn end_scope(&mut self) -> std::io::Result<()> {
+        let len = self.indentation.len();
+        self.indentation.truncate( len - self.indent_str.len() );
+        writeln!( self.file, "{}}}", self.indentation )?;
+        Ok(())
+    }
+    
+    fn writeln(&mut self, string: String) -> std::io::Result<()> {
+        writeln!( self.file, "{}{}", self.indentation, string )
+    }
+
+    fn write(&mut self, string: String) -> std::io::Result<()> {
+        write!( self.file, "{}{}", self.indentation, string )
+    }
+
+    fn newline( &mut self ) -> std::io::Result<()> {
+        writeln!( self.file )
+    }
+
+    fn gen_id_str( &mut self, base: String ) -> String {
+        let res = base + &self.id_pool.to_string();
+        self.id_pool += 1;
+        res
+    }
 }
 
 enum TypeInfoType<'a> {
@@ -717,18 +763,10 @@ fn write_type_instantiation( file: &mut File, type_info: &TypeInfo, indent_count
     Ok(true)
 }
 
-fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, file: &mut File, type_info: &TypeInfo, local_instantitation: bool, indent_count: usize ) -> Result<bool, GMError> {
-    let type_name = type_info.name.replace( "::", "_" );
+fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo, local_instantitation: bool, indent_count: usize ) -> Result<bool, GMError> {
+    let type_name = &type_info.name;
     let type_var  = get_field_var( &type_name, &type_info._field );
     let indent    = " ".repeat( indent_count * 4 );
-
-    fn open_braces( file: &mut File, indent_count: usize ) -> Result<(), std::io::Error> {
-        writeln!( file, "{}{{", " ".repeat( indent_count * 4 ) )
-    }
-
-    fn close_braces( file: &mut File, indent_count: usize ) -> Result<(), std::io::Error> {
-        writeln!( file, "{}}}", " ".repeat( indent_count * 4 ) )
-    }
 
     use TypeInfoType::*;
     match get_type_info_type( &type_info ) {
@@ -743,151 +781,168 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, templa
                 CHAR => "CHAR",
             };
 
-            writeln!( file, "{}type_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, type_name )?;
-            writeln!( file, "{}type_set_id( {}, type_id<{}>() );", indent, type_var, type_info.name )?;
-            writeln!( file, "{}scalar_set_size( {}.scalar_info, sizeof( {} ) );", indent, type_var, type_info.name )?;
-            writeln!( file, "{}scalar_set_type( {}.scalar_info, ScalarInfoType::{} );", indent, type_var, scalar_type_name )?;
-            writeln!( file )?;
+            context.writeln( format!("type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name ) )?;
+            context.writeln( format!("type_set_id( {}, type_id<{}>() );", type_var, type_info.name ) )?;
+            context.writeln( format!("scalar_set_size( {}.scalar_info, sizeof( {} ) );", type_var, type_info.name ) )?;
+            context.writeln( format!("scalar_set_type( {}.scalar_info, ScalarInfoType::{} );", type_var, scalar_type_name ) )?;
+            context.newline()?;
         }
 
         Enum( _enum_type ) => {
             let enum_type = type_info._enum.as_ref().unwrap();
-            writeln!( file, "{}type_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, type_name )?;
-            writeln!( file, "{}type_set_id( {}, type_id<{}>() );", indent, type_var, type_info.name )?;
-            writeln!( file, "{}enum_set_underlying_type( {}.enum_info, &type_{} );", indent, type_var, enum_type.underlying_type.replace("int", "i32").replace("ushort", "u16") )?;
+            writeln!( context.file, "{}type_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, type_name )?;
+            writeln!( context.file, "{}type_set_id( {}, type_id<{}>() );", indent, type_var, type_info.name )?;
+            writeln!( context.file, "{}enum_set_underlying_type( {}.enum_info, &type_{} );", indent, type_var, enum_type.underlying_type.replace("int", "i32").replace("ushort", "u16") )?;
 
             if !enum_type.enum_values.is_empty() {
-                open_braces( file, indent_count )?;
-                writeln!( file, "{}    EnumValue* values = (EnumValue*)alloc_data( alloc_data_param, sizeof(EnumValue) * {} );", indent, enum_type.enum_values.len() )?;
+                context.begin_scope()?;
+                context.writeln( format!( "auto values = (EnumValue*)alloc_data( alloc_data_param, sizeof(EnumValue) * {} );", enum_type.enum_values.len() ) )?;
                 let mut val = 0;
                 for ( name, &(value, _) ) in &enum_type.enum_values {
-                    writeln!( file, "{}    values[{}] = {{ copy_string( \"{}\" ), {} }};", indent, val, name, value )?;
+                    context.writeln( format!( "values[{}] = {{ copy_string( \"{}\" ), {} }};", val, name, value ) )?;
                     val = val + 1;
                 }
-                writeln!( file, "{}    enum_set_values( {}.enum_info, values, {} );", indent, type_var, enum_type.enum_values.len() )?;
-                close_braces( file, indent_count )?;
+                context.writeln( format!( "enum_set_values( {}.enum_info, values, {} );", type_var, enum_type.enum_values.len() ) )?;
+                context.end_scope()?;
             }
 
-            writeln!( file )?;
+            context.newline()?;
         }
 
         Template( _template_type ) => {
-            writeln!( file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
-            writeln!( file, "{}type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", indent, type_var, get_type_id( &type_info ) )?;
-            writeln!( file )?;
+            context.writeln( format!( "type_set_name( {}, \"{}\" );", type_var, type_name ) )?;
+            context.writeln( format!( "type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) ) )?;
+            if let Some(instances) = template_instances.get( type_name ) {
+                let instances_var_name = format!( "{}_instances", type_var );
+                context.begin_scope()?;
+                context.writeln( format!( "auto {} = (TemplateInstance*)alloc_data( alloc_data_param, sizeof(TemplateInstance) * {} );", instances_var_name, instances.len() ) )?;
+                context.begin_scope()?;
+                let mut instance_index = 0;
+                for instance in instances.iter() {
+                    // writeln!( context.file, "    {}auto ")
+                    for param in instance.iter() {
+
+                    }
+                    instance_index = instance_index + 1;
+                }
+                context.end_scope()?;
+                context.writeln( format!("template_set_instances( {}, {} );", type_var, instances_var_name ) )?;
+                context.end_scope()?;
+            }
+            writeln!( context.file )?;
         }
 
         Struct( struct_type ) => {
-            writeln!( file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
-            writeln!( file, "{}type_set_id( {}, type_id<{}>() );", indent, type_var, type_info.name )?;
-            writeln!( file, "{}struct_set_size( {}.struct_info, sizeof( {} ) );", indent, type_var, type_info.name )?;
+            writeln!( context.file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
+            writeln!( context.file, "{}type_set_id( {}, type_id<{}>() );", indent, type_var, type_info.name )?;
+            writeln!( context.file, "{}struct_set_size( {}.struct_info, sizeof( {} ) );", indent, type_var, type_info.name )?;
             if let Some( ref parent ) = struct_type.parent {
-                writeln!( file, "{}struct_set_parent( {}.struct_info, &{} );", indent, type_var, get_type_var( &parent ) )?;
+                writeln!( context.file, "{}struct_set_parent( {}.struct_info, &{} );", indent, type_var, get_type_var( &parent ) )?;
             }
 
             if !struct_type.fields.is_empty() {
-                open_braces( file, indent_count )?;
-                writeln!( file, "{}    auto struct_fields = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", indent, struct_type.fields.len() )?;
+                context.begin_scope()?;
+                writeln!( context.file, "{}    auto struct_fields = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", indent, struct_type.fields.len() )?;
                 let mut idx = 0;
                 for field in &struct_type.fields {
-                    open_braces( file, indent_count+1 )?;
-                    write_type_implementation( type_info_map, template_instances, file, field, true, indent_count+2 )?;
-                    writeln!( file, "{}        struct_fields[{}] = {};", indent, type_var, get_field_var( &field.name, &field._field ) )?;
+                    context.begin_scope()?;
+                    write_type_implementation( context, type_info_map, template_instances, field, true, indent_count+2 )?;
+                    writeln!( context.file, "{}        struct_fields[{}] = {};", indent, type_var, get_field_var( &field.name, &field._field ) )?;
                     idx = idx + 1;
-                    close_braces( file, indent_count+1 )?;
+                    context.end_scope()?;
                 }
-                writeln!(file, "{}    struct_fields( {}, values, {} );", indent, type_var, struct_type.fields.len() )?;
-                close_braces( file, indent_count )?;
+                writeln!(context.file, "{}    struct_fields( {}, values, {} );", indent, type_var, struct_type.fields.len() )?;
+                context.end_scope()?;
             }
 
             if !struct_type.functions.is_empty() {
-                open_braces( file, indent_count )?;
-                writeln!( file, "{}    auto struct_functions = (FuncInfo*)alloc_data( alloc_data_param, sizeof(TypeInfo) * {} );", indent, struct_type.functions.len() )?;
+                context.begin_scope()?;
+                writeln!( context.file, "{}    auto struct_functions = (FuncInfo*)alloc_data( alloc_data_param, sizeof(TypeInfo) * {} );", indent, struct_type.functions.len() )?;
                 let mut idx = 0;
                 for func in &struct_type.functions {
-                    open_braces( file, indent_count+1 )?;
-                    write_type_implementation( type_info_map, template_instances, file, func, true, indent_count+2 )?;
-                    writeln!( file, "{}        struct_functions[{}] = {};", indent, idx, get_type_var( &func.name ) )?;
-                    close_braces( file, indent_count+1 )?;
+                    context.begin_scope()?;
+                    write_type_implementation( context, type_info_map, template_instances, func, true, indent_count+2 )?;
+                    writeln!( context.file, "{}        struct_functions[{}] = {};", indent, idx, get_type_var( &func.name ) )?;
+                    context.end_scope()?;
                     idx = idx + 1;
                 }
-                writeln!( file, "{}    struct_set_functions( {}, struct_functions, {} );", indent, type_var, struct_type.functions.len() )?;
-                close_braces( file, indent_count )?;
+                writeln!( context.file, "{}    struct_set_functions( {}, struct_functions, {} );", indent, type_var, struct_type.functions.len() )?;
+                context.end_scope()?;
             }
-            writeln!( file )?;
+            writeln!( context.file )?;
         }
 
         Func( func_type ) => {
-            if !local_instantitation {writeln!( file, "{}{{", indent )?;}  
+            if !local_instantitation {writeln!( context.file, "{}{{", indent )?;}  
             let type_func = func_type;
             let func_name = &type_info.name;
 
             if local_instantitation {
-                writeln!( file, "{}FuncInfo {};", indent, type_var )?;
+                writeln!( context.file, "{}FuncInfo {};", indent, type_var )?;
             } else {
-                write_type_instantiation( file, type_info, indent_count )?;
+                write_type_instantiation( &mut context.file, type_info, indent_count )?;
             }
 
-            writeln!( file, "{}type_set_name( {}, \"{}\" );", indent, type_var, func_name )?;
+            writeln!( context.file, "{}type_set_name( {}, \"{}\" );", indent, type_var, func_name )?;
             if let Some( ref return_type ) = type_func.return_type {
-                open_braces( file, indent_count )?;
+                context.begin_scope()?;
                 let return_type = &return_type;
-                write_type_implementation( type_info_map, template_instances, file, return_type, true, indent_count+1 )?;
-                writeln!( file, "{}    func_set_return_type( {}, {} )", indent, type_var, get_field_var( &return_type.name, &return_type._field ) )?;
-                close_braces( file, indent_count )?;
+                write_type_implementation( context, type_info_map, template_instances, return_type, true, indent_count+1 )?;
+                writeln!( context.file, "{}    func_set_return_type( {}, {} )", indent, type_var, get_field_var( &return_type.name, &return_type._field ) )?;
+                context.end_scope()?;
             }
 
             if !type_func.parameters.is_empty() {
-                open_braces( file, indent_count )?;
-                writeln!( file, "{}    auto* values = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", indent, type_func.parameters.len() )?;
+                context.begin_scope()?;
+                writeln!( context.file, "{}    auto* values = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", indent, type_func.parameters.len() )?;
                 let mut idx = 0;
                 for param in &type_func.parameters {
-                    open_braces( file, indent_count+1 )?;
-                    write_type_implementation( type_info_map, template_instances, file, param, true, indent_count+2 )?;
-                    writeln!( file, "{}        values[{}] = {};", indent, idx, get_field_var( &param.name, &param._field ) )?;
-                    close_braces( file, indent_count+1 )?;
+                    context.begin_scope()?;
+                    write_type_implementation( context, type_info_map, template_instances, param, true, indent_count+2 )?;
+                    writeln!( context.file, "{}        values[{}] = {};", indent, idx, get_field_var( &param.name, &param._field ) )?;
+                    context.end_scope()?;
                     idx = idx + 1;
                 }
-                writeln!( file, "{}    func_set_parameters( {}, values, {} );", indent, type_var, type_func.parameters.len() )?;
-                close_braces( file, indent_count )?;
+                writeln!( context.file, "{}    func_set_parameters( {}, values, {} );", indent, type_var, type_func.parameters.len() )?;
+                context.end_scope()?;
             }
 
-            if !local_instantitation {writeln!( file, "{}}}", indent )?;}
-            writeln!( file )?;
+            if !local_instantitation {writeln!( context.file, "{}}}", indent )?;}
+            writeln!( context.file )?;
         }
 
         Typedef( typedef_type ) => {
             let source_type_var = get_type_var( &typedef_type.source_type );
-            writeln!( file, "{}{} = {};", indent, type_var, source_type_var )?;
-            writeln!( file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
-            writeln!( file, "{}type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", indent, type_var, get_type_id( &type_info ) )?;
-            writeln!( file )?;
+            writeln!( context.file, "{}{} = {};", indent, type_var, source_type_var )?;
+            writeln!( context.file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
+            writeln!( context.file, "{}type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", indent, type_var, get_type_id( &type_info ) )?;
+            writeln!( context.file )?;
         }
 
         Field( field_type ) => {
-            writeln!( file, "{}FieldInfo {};", indent, type_var )?;
-            writeln!( file, "{}field_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, field_type.field_name)?;
+            writeln!( context.file, "{}FieldInfo {};", indent, type_var )?;
+            writeln!( context.file, "{}field_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, field_type.field_name)?;
             if field_type.offset != 0 {
-                writeln!( file, "{}field_set_offset( {}, {} );", indent, type_var, field_type.offset )?;
+                writeln!( context.file, "{}field_set_offset( {}, {} );", indent, type_var, field_type.offset )?;
             }
-            writeln!( file, "{}field_set_modifiers( {}, (FieldInfo_Modifier) ({}) );", indent, type_var, build_modifier_string( &field_type ) )?;
+            writeln!( context.file, "{}field_set_modifiers( {}, (FieldInfo_Modifier) ({}) );", indent, type_var, build_modifier_string( &field_type ) )?;
 
             if let Some( registered_type ) = type_info_map.get( &type_info.name ) {
                 if registered_type._struct.is_some() {
-                    writeln!( file, "{}field_set_type( {}, &{} );", indent, type_var, get_type_var( &registered_type.name ) )?;
+                    writeln!( context.file, "{}field_set_type( {}, &{} );", indent, type_var, get_type_var( &registered_type.name ) )?;
                 } else if let Some( ref template_args ) = field_type.templates {
                     let template_src_type_var = get_type_var( &type_info.name );
-                    writeln!( file, "{}TemplateParam {}_template_params[{}];", indent, type_var, template_args.len() )?;
+                    writeln!( context.file, "{}TemplateParam {}_template_params[{}];", indent, type_var, template_args.len() )?;
                     let mut i = 0;
                     for arg in template_args {
-                        open_braces( file, indent_count )?;
-                        write_type_implementation( type_info_map, template_instances, file, &arg, true, indent_count + 1 )?;
+                        context.begin_scope()?;
+                        write_type_implementation( context, type_info_map, template_instances, &arg, true, indent_count + 1 )?;
                         let field_var = get_field_var( &arg.name, &arg._field );
-                        writeln!( file, "    {}{}_template_params[{}] = TemplateParam{{ {}, 0 }};", indent, type_var, i, field_var )?;
-                        close_braces( file, indent_count )?;
+                        writeln!( context.file, "    {}{}_template_params[{}] = TemplateParam{{ {}, 0 }};", indent, type_var, i, field_var )?;
+                        context.end_scope()?;
                         i = i + 1;
                     }
-                    writeln!( file, "{}field_set_template_instance_ref( {}, {}.get_instance( {}_template_params ) );", indent, type_var, template_src_type_var, type_var )?;
+                    writeln!( context.file, "{}field_set_template_instance_ref( {}, {}.get_instance( {}_template_params ) );", indent, type_var, template_src_type_var, type_var )?;
                 }
             }
         }
@@ -899,7 +954,8 @@ fn write_type_implementation( type_info_map: &HashMap<String, &TypeInfo>, templa
 }
 
 fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>> ) -> Result<bool, GMError> {
-    let mut file = File::create( "type_db.cpp" )?;
+    let file = File::create( "type_db.cpp" )?;
+    let mut context = ExportContext::new( file, "    ".to_string() );
 
     // includes
     {
@@ -913,22 +969,22 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<
 
         let dependencies = &[ "type_db.h", "basic_types.h" ];
         for dep in dependencies {
-            writeln!( file, "#include \"{}\"", dep )?;
+            writeln!( context.file, "#include \"{}\"", dep )?;
             includes.remove( dep );
         }
         includes.remove( "types.h" );
 
-        writeln!( file )?;
+        writeln!( context.file )?;
 
         for include in includes.iter() {
-            writeln!( file, "#include \"{}\"", include )?;
+            writeln!( context.file, "#include \"{}\"", include )?;
         }
-        writeln!( file )?;
+        writeln!( context.file )?;
     }
 
-    writeln!( &mut file, "{}", get_register_types_header( false ) )?;
+    writeln!( context.file, "{}", get_register_types_header( false ) )?;
 
-    writeln!( file, "    auto copy_string = [&]( const char* str ) {{
+    writeln!( context.file, "    auto copy_string = [&]( const char* str ) {{
         uint32_t len = strlen( str );
         char* result = (char*)alloc_data( alloc_data_param, len+1 );
         strcpy( result, str );
@@ -936,21 +992,21 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<
     }};")?;
 
     for type_info in type_info_vec.iter() {
-        write_type_instantiation( &mut file, type_info, 1 )?;
+        write_type_instantiation( &mut context.file, type_info, 1 )?;
     }
 
-    writeln!( file )?;
+    writeln!( context.file )?;
 
     for type_info in type_info_vec.iter() {
-        write_type_implementation( type_info_map, template_instances, &mut file, type_info, false, 1 )?;
+        write_type_implementation( &mut context, type_info_map, template_instances, type_info, false, 1 )?;
     }
 
-    writeln!( file, "}}" )?;
+    writeln!( context.file, "}}" )?;
 
-    writeln!( file )?;
+    writeln!( context.file )?;
 
     for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() && has_object_parent( t._struct.as_ref().unwrap(), &type_info_map ) ) {
-        write_struct_implementation( &type_info_map, &mut file, type_info )?;
+        write_struct_implementation( &type_info_map, &mut context.file, type_info )?;
     }
 
     Ok( true )

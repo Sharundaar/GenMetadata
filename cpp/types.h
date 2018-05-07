@@ -39,18 +39,6 @@ struct ScalarInfo
     ScalarInfoType  scalar_type = ScalarInfoType::INT;
 };
 
-struct TemplateInstanceRef
-{
-    const TemplateInfo* definition = nullptr;
-    int32_t             inst_idx   = -1;
-
-    const TemplateInstance* operator->() const;
-    bool operator==( const TemplateInstanceRef& other ) const;
-    bool operator==( const std::nullptr_t other ) const;
-    bool operator!=( const std::nullptr_t other ) const;
-    operator bool() const;
-};
-
 enum FieldInfoModifier
 {
     NONE      = 0,
@@ -65,7 +53,7 @@ struct FieldInfo
 {
     const char* name     = nullptr;
     const TypeInfo* type = nullptr;
-    TemplateInstanceRef template_type = {};
+    const TemplateInstance* template_instance = {};
     FieldInfoModifier modifier = NONE;
     uint32_t offset = 0;
 
@@ -138,7 +126,7 @@ struct TemplateInfo
     TemplateInstance* instances;
 
     bool                has_instance( const TemplateParam* params, uint32_t param_count );
-    TemplateInstanceRef get_instance( const TemplateParam* params, uint32_t param_count );
+    TemplateInstance*   get_instance( const TemplateParam* params, uint32_t param_count );
 
 private:
     int32_t get_instance_internal( const TemplateParam* params, unsigned int param_count );
@@ -169,6 +157,12 @@ struct TypeInfo
     };
 
     TypeInfo& operator=( const TypeInfo& other );
+
+    operator TemplateInfo&();
+    operator ScalarInfo&();
+    operator StructInfo&();
+    operator FuncInfo&();
+    operator EnumInfo&();
 };
 
 void scalar_set_type( ScalarInfo& type, ScalarInfoType scalar_type );
@@ -196,7 +190,7 @@ void type_set_id( TypeInfo& type, TypeId type_id );
 
 void field_set_name( FieldInfo& field, const char* name );
 void field_set_type( FieldInfo& field, const TypeInfo* type );
-void field_set_template_instance_ref( FieldInfo& field, TemplateInstanceRef ref );
+void field_set_template_instance( FieldInfo& field, const TemplateInstance* instance );
 void field_set_offset( FieldInfo& field, uint32_t offset );
 void field_set_modifiers( FieldInfo& field, FieldInfoModifier modifiers );
 
@@ -300,6 +294,12 @@ TypeInfo& TypeInfo::operator=( const TypeInfo& other )
     memcpy( this, &other, sizeof(TypeInfo) );
 }
 
+operator TypeInfo::TemplateInfo&() { return this->template_info; }
+operator TypeInfo::ScalarInfo&() { return this->scalar_info; }
+operator TypeInfo::StructInfo&() { return this->struct_info; }
+operator TypeInfo::FuncInfo&() { return this->func_info; }
+operator TypeInfo::EnumInfo&() { return this->enum_info; }
+
 FieldInfo& FieldInfo::operator=( const FieldInfo& other )
 {
     name          = other.name;
@@ -324,7 +324,7 @@ FieldInfo::operator bool() const
 
 void field_set_name( FieldInfo& field, const char* name ) { field.name = name; }
 void field_set_type( FieldInfo& field, const TypeInfo* type ) { field.type = type; }
-void field_set_template_instance_ref( FieldInfo& field, TemplateInstanceRef ref ) { field.ref = ref; }
+void field_set_template_instance( FieldInfo& field, TemplateInstance* instance ) { field.template_instance = instance; }
 void field_set_offset( FieldInfo& field, uint32_t offset ) { field.offset = offset; }
 void field_set_modifiers( FieldInfo& field, FieldInfoModifier modifiers ) { field.modifier = modifiers; }
 
@@ -373,9 +373,10 @@ bool TemplateInfo::has_instance( const TemplateParam* params, uint32_t param_cou
     return get_instance_internal( params, param_count ) >= 0;
 }
 
-TemplateInstanceRef TemplateInfo::get_instance( const TemplateParam* params, uint32_t param_count )
+TemplateInstance* TemplateInfo::get_instance( const TemplateParam* params, uint32_t param_count )
 {
-    return TemplateInstanceRef{ this, get_instance_internal( params, param_count ) };
+    auto instance_index = get_instance_internal( params, param_count );
+    return instance_index == -1 ? nullptr : instances[ instance_index ];
 }
 
 const TemplateInstance* TemplateInstanceRef::operator->() const { return definition == nullptr ? nullptr : &definition->instances[inst_idx]; }
