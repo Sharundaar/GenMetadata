@@ -770,7 +770,7 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo )
     }
 }
 
-fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo, local_instantitation: bool, indent_count: usize ) -> Result<bool, GMError> {
+fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
     let type_name = &type_info.name;
     let type_var  = match context.type_var_override {
         Option::None => get_field_var( &type_name, &type_info._field ),
@@ -838,7 +838,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                     let mut param_index = 0;
                     for param in instance.iter() {
                         context.type_var_override( format!( "{}[{}].info", instance_param_var_name, param_index ) );
-                        write_type_implementation( context, type_info_map, template_instances, &param, true, indent_count + 3 )?;
+                        write_type_implementation( context, type_info_map, template_instances, &param, indent_count + 3 )?;
                         context.remove_type_var_override();
                         param_index += 1;
                     }
@@ -854,41 +854,43 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
 
 // Impl Struct
         Struct( struct_type ) => {
-            writeln!( context.file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
-            writeln!( context.file, "{}type_set_id( {}, type_id<{}>() );", indent, type_var, type_info.name )?;
-            writeln!( context.file, "{}struct_set_size( {}.struct_info, sizeof( {} ) );", indent, type_var, type_info.name )?;
+            gm_writeln!( context, "type_set_name( {}, \"{}\" );", type_var, type_name )?;
+            gm_writeln!( context, "type_set_id( {}, type_id<{}>() );", type_var, type_info.name )?;
+            gm_writeln!( context, "struct_set_size( {}.struct_info, sizeof( {} ) );", type_var, type_info.name )?;
             if let Some( ref parent ) = struct_type.parent {
-                writeln!( context.file, "{}struct_set_parent( {}.struct_info, &{} );", indent, type_var, get_type_var( &parent ) )?;
+                gm_writeln!( context, "struct_set_parent( {}.struct_info, &{} );", type_var, get_type_var( &parent ) )?;
             }
 
             if !struct_type.fields.is_empty() {
-                context.begin_scope()?;
-                writeln!( context.file, "{}    auto struct_fields = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", indent, struct_type.fields.len() )?;
+                gm_begin_scope!( context )?;
+                gm_writeln!( context, "auto struct_fields = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", struct_type.fields.len() )?;
                 let mut idx = 0;
                 for field in &struct_type.fields {
-                    context.begin_scope()?;
-                    write_type_implementation( context, type_info_map, template_instances, field, true, indent_count+2 )?;
-                    writeln!( context.file, "{}        struct_fields[{}] = {};", indent, type_var, get_field_var( &field.name, &field._field ) )?;
+                    gm_begin_scope!( context )?;
+                    context.type_var_override( format!("struct_fields[{}]", idx) );
+                    write_type_implementation( context, type_info_map, template_instances, field, indent_count+2 )?;
+                    context.remove_type_var_override();
+                    gm_end_scope!( context )?;
                     idx = idx + 1;
-                    context.end_scope()?;
                 }
-                writeln!(context.file, "{}    struct_fields( {}, values, {} );", indent, type_var, struct_type.fields.len() )?;
-                context.end_scope()?;
+                gm_writeln!(context, "struct_set_fields( {}, struct_fields, {} );", type_var, struct_type.fields.len() )?;
+                gm_end_scope!( context )?;
             }
 
             if !struct_type.functions.is_empty() {
-                context.begin_scope()?;
-                writeln!( context.file, "{}    auto struct_functions = (FuncInfo*)alloc_data( alloc_data_param, sizeof(TypeInfo) * {} );", indent, struct_type.functions.len() )?;
+                gm_begin_scope!( context )?;
+                gm_writeln!( context, "auto struct_functions = (FuncInfo*)alloc_data( alloc_data_param, sizeof(TypeInfo) * {} );", struct_type.functions.len() )?;
                 let mut idx = 0;
                 for func in &struct_type.functions {
-                    context.begin_scope()?;
-                    write_type_implementation( context, type_info_map, template_instances, func, true, indent_count+2 )?;
-                    writeln!( context.file, "{}        struct_functions[{}] = {};", indent, idx, get_type_var( &func.name ) )?;
-                    context.end_scope()?;
+                    gm_begin_scope!( context )?;
+                    context.type_var_override( format!("struct_functions[{}]", idx) );
+                    write_type_implementation( context, type_info_map, template_instances, func, indent_count+2 )?;
+                    context.remove_type_var_override();
+                    gm_end_scope!( context )?;
                     idx = idx + 1;
                 }
-                writeln!( context.file, "{}    struct_set_functions( {}, struct_functions, {} );", indent, type_var, struct_type.functions.len() )?;
-                context.end_scope()?;
+                gm_writeln!( context, "struct_set_functions( {}, struct_functions, {} );", type_var, struct_type.functions.len() )?;
+                gm_end_scope!( context )?;
             }
             writeln!( context.file )?;
         }
@@ -910,7 +912,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             if let Some( ref return_type ) = type_func.return_type {
                 context.begin_scope()?;
                 let return_type = &return_type;
-                write_type_implementation( context, type_info_map, template_instances, return_type, true, indent_count+1 )?;
+                write_type_implementation( context, type_info_map, template_instances, return_type, indent_count+1 )?;
                 writeln!( context.file, "{}    func_set_return_type( {}, {} )", indent, type_var, get_field_var( &return_type.name, &return_type._field ) )?;
                 context.end_scope()?;
             }
@@ -923,7 +925,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 for param in &type_func.parameters {
                     gm_begin_scope!( context )?;
                     context.type_var_override( format!("{}[{}]", func_parameters_type_var, idx ) );
-                    write_type_implementation( context, type_info_map, template_instances, param, true, indent_count+3 )?;
+                    write_type_implementation( context, type_info_map, template_instances, param, indent_count+3 )?;
                     context.remove_type_var_override();
                     gm_end_scope!( context )?;
                     idx = idx + 1;
@@ -963,7 +965,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                     let mut i = 0;
                     for arg in template_args {
                         context.begin_scope()?;
-                        write_type_implementation( context, type_info_map, template_instances, &arg, true, indent_count + 1 )?;
+                        write_type_implementation( context, type_info_map, template_instances, &arg, indent_count + 1 )?;
                         let field_var = get_field_var( &arg.name, &arg._field );
                         writeln!( context.file, "    {}{}_template_params[{}] = TemplateParam{{ {}, 0 }};", indent, type_var, i, field_var )?;
                         context.end_scope()?;
@@ -1029,7 +1031,7 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<
     writeln!( context.file )?;
 
     for type_info in type_info_vec.iter() {
-        write_type_implementation( &mut context, type_info_map, template_instances, type_info, false, 1 )?;
+        write_type_implementation( &mut context, type_info_map, template_instances, type_info, 1 )?;
     }
 
     gm_end_scope!( context )?;
