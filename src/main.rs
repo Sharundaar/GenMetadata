@@ -126,7 +126,7 @@ struct ExportContext {
     indent_str:  String,
     id_pool:     u64,
 
-    type_var_override: Option<String>,
+    type_var_override: Vec<String>,
 }
 
 macro_rules! gm_writeln {
@@ -161,7 +161,7 @@ macro_rules! gm_info {
 impl ExportContext {
 
     fn new(file: File, indent_str: String) -> ExportContext {
-        ExportContext{ indentation: String::new(), indent_str: indent_str, file: file, id_pool: 0, type_var_override: None }
+        ExportContext{ indentation: String::new(), indent_str: indent_str, file: file, id_pool: 0, type_var_override: vec!() }
     }
 
     fn begin_scope(&mut self) -> Result<(), GMError> {
@@ -200,12 +200,12 @@ impl ExportContext {
         res
     }
 
-    fn type_var_override( &mut self, tv: String ) {
-        self.type_var_override = Some( tv );
+    fn push_type_var_override( &mut self, tv: String ) {
+        self.type_var_override.push( tv );
     }
 
-    fn remove_type_var_override( &mut self ) {
-        self.type_var_override = None;
+    fn pop_type_var_override( &mut self ) {
+        self.type_var_override.pop();
     }
 }
 
@@ -772,9 +772,9 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo )
 
 fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
     let type_name = &type_info.name;
-    let type_var  = match context.type_var_override {
+    let type_var  = match context.type_var_override.last() {
         Option::None => get_field_var( &type_name, &type_info._field ),
-        Some( ref otv ) => otv.clone(),
+        Some( otv ) => otv.clone(),
     };
     let indent    = " ".repeat( indent_count * 4 );
 
@@ -837,9 +837,9 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                     gm_writeln!( context, "auto {} = (TemplateParam*)alloc_data( alloc_data_param, sizeof(TemplateParam) * {} );", instance_param_var_name, instance.len() )?;
                     let mut param_index = 0;
                     for param in instance.iter() {
-                        context.type_var_override( format!( "{}[{}].info", instance_param_var_name, param_index ) );
+                        context.push_type_var_override( format!( "{}[{}].info", instance_param_var_name, param_index ) );
                         write_type_implementation( context, type_info_map, template_instances, &param, indent_count + 3 )?;
-                        context.remove_type_var_override();
+                        context.pop_type_var_override();
                         param_index += 1;
                     }
                     gm_end_scope!( context )?;
@@ -866,11 +866,9 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 gm_writeln!( context, "auto struct_fields = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", struct_type.fields.len() )?;
                 let mut idx = 0;
                 for field in &struct_type.fields {
-                    gm_begin_scope!( context )?;
-                    context.type_var_override( format!("struct_fields[{}]", idx) );
+                    context.push_type_var_override( format!("struct_fields[{}]", idx) );
                     write_type_implementation( context, type_info_map, template_instances, field, indent_count+2 )?;
-                    context.remove_type_var_override();
-                    gm_end_scope!( context )?;
+                    context.pop_type_var_override();
                     idx = idx + 1;
                 }
                 gm_writeln!(context, "struct_set_fields( {}, struct_fields, {} );", type_var, struct_type.fields.len() )?;
@@ -883,9 +881,9 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 let mut idx = 0;
                 for func in &struct_type.functions {
                     gm_begin_scope!( context )?;
-                    context.type_var_override( format!("struct_functions[{}]", idx) );
+                    context.push_type_var_override( format!("struct_functions[{}]", idx) );
                     write_type_implementation( context, type_info_map, template_instances, func, indent_count+2 )?;
-                    context.remove_type_var_override();
+                    context.pop_type_var_override();
                     gm_end_scope!( context )?;
                     idx = idx + 1;
                 }
@@ -901,7 +899,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             let type_func = func_type;
             let func_name = &type_info.name;
 
-            if context.type_var_override.is_none() {
+            if context.type_var_override.is_empty() {
                 gm_begin_scope!( context )?;
                 gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var )?;
             } else {
@@ -924,9 +922,9 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 let mut idx = 0;
                 for param in &type_func.parameters {
                     gm_begin_scope!( context )?;
-                    context.type_var_override( format!("{}[{}]", func_parameters_type_var, idx ) );
+                    context.push_type_var_override( format!("{}[{}]", func_parameters_type_var, idx ) );
                     write_type_implementation( context, type_info_map, template_instances, param, indent_count+3 )?;
-                    context.remove_type_var_override();
+                    context.pop_type_var_override();
                     gm_end_scope!( context )?;
                     idx = idx + 1;
                 }
@@ -934,7 +932,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 context.end_scope()?;
             }
 
-            if context.type_var_override.is_none() { gm_end_scope!( context )?; }
+            if context.type_var_override.is_empty() { gm_end_scope!( context )?; }
             gm_writeln!( context )?;
         }
 
@@ -949,7 +947,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
 
 // Impl Field
         Field( field_type ) => {
-            if context.type_var_override.is_none() { writeln!( context.file, "{}FieldInfo {};", indent, type_var )?; };
+            if context.type_var_override.is_empty() { writeln!( context.file, "{}FieldInfo {};", indent, type_var )?; };
             writeln!( context.file, "{}field_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, field_type.field_name)?;
             if field_type.offset != 0 {
                 writeln!( context.file, "{}field_set_offset( {}, {} );", indent, type_var, field_type.offset )?;
