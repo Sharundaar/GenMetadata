@@ -479,7 +479,7 @@ fn from_entity_fielddecl( entity: &Entity, parent_type: Option<&Type> ) -> Resul
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
             // type name filled in later
-            let mut type_info = TypeInfo::new( "" ).make_field( &name, if let Some(parent_type) = parent_type { ( parent_type.get_offsetof( &name ).unwrap() as u32 ) / 8 } else { 0 } );
+            let mut type_info = TypeInfo::new( "" ).make_field( &name, if let Some(parent_type) = parent_type { ( parent_type.get_offsetof( &name ).unwrap_or(0) as u32 ) / 8 } else { 0 } );
             {
                 let mut field_info = type_info._field.as_mut().unwrap();
 
@@ -1180,10 +1180,32 @@ fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
     }
 }
 
+fn parse_translation_unit( tu: &TranslationUnit, options: &Options ) -> Vec<TypeInfo> {
+    let mut type_info_vec = Vec::new();
+    for built_in in get_built_in_types() {
+        type_info_vec.push( built_in.clone() );
+    }
+
+    for entity in tu.get_entity().get_children().iter().filter( |e| !e.is_in_system_header() ) {
+        match from_entity( &entity ) {
+            Ok( type_info ) =>  {
+                type_info_vec.push( type_info );
+            },
+            Err( error ) => {
+                if options.verbose {
+                    println!( "({}): {}", get_source_file( &entity ).unwrap_or_else(|| String::from("NoFile")), error ); 
+                }
+            },
+        };
+    }
+
+    type_info_vec
+}
+
 fn main() {
     let start = Instant::now();
 
-    let mut options : Options = Options::default();
+    let mut options = Options::default();
 
     {
         let mut ap = ArgumentParser::new();
@@ -1225,32 +1247,16 @@ fn main() {
 
     let arguments = get_clang_arguments( &options.input_directories, &options.additional_include_directories );
 
-
-    let mut type_info_vec: Vec<TypeInfo> = Vec::new();
-    for built_in in get_built_in_types() {
-        type_info_vec.push( built_in.clone() );
-    }
-
     let clang = Clang::new().unwrap();
     let index = Index::new(&clang, false, true);
 
-    let tu = index.parser( &"main.h" )
-                .arguments( &arguments )
-                .parse().unwrap(); // @Cleanup: should not unwrap this...
-    
-    for entity in tu.get_entity().get_children().iter().filter( |e| !e.is_in_system_header() ) {
-        match from_entity( &entity ) {
-            Ok( type_info ) =>  {
-                type_info_vec.push( type_info );
-            },
-            Err( error ) => {
-                if options.verbose {
-                    println!( "({}): {}", get_source_file( &entity ).unwrap_or_else(|| String::from("NoFile")), error ); 
-                }
-            },
-        };
-    }
-    let type_info_vec = type_info_vec;
+    let type_info_vec = match index.parser( &"main.h" ).arguments( &arguments ).parse() {
+        Ok( tu )   => parse_translation_unit( &tu, &options ),
+        Err( err ) => {
+            println!( "ERROR: {}", err );
+            Vec::new()
+        }
+    };
  
     fn explore_fields_rec( template_instances: &mut HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo ) {
         let field_info = type_info._field.as_ref().unwrap();
