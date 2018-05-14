@@ -19,7 +19,7 @@ struct Options {
     verbose: bool,
     input_directories: Vec<String>,
     additional_include_directories: Vec<String>,
-    output_file: Option<String>,
+    output_directory: Option<String>,
     no_output: bool,
     no_report: bool,
 }
@@ -609,9 +609,14 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
     }
 }
 
-fn write_header( type_info_vec : &Vec<TypeInfo>, type_info_map: &HashMap<String, &TypeInfo> ) -> Result<bool, GMError> {
-
-    let mut file = File::create( "type_db.h" )?;
+fn write_header( type_info_vec : &Vec<TypeInfo>, type_info_map: &HashMap<String, &TypeInfo>, options: &Options ) -> Result<bool, GMError> {
+    let mut file = File::create( {
+        use std::path::PathBuf;
+        let mut pathbuf = PathBuf::new();
+        if let Some(ref dir) = options.output_directory { pathbuf.push(dir); }
+        pathbuf.push("type_db.h");
+        pathbuf
+    } )?;
 
     writeln!( file, "#pragma once" )?;
     writeln!( file, "#include \"types.h\"")?;
@@ -980,8 +985,14 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
     Ok(true)
 }
 
-fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>> ) -> Result<bool, GMError> {
-    let file = File::create( "type_db.cpp" )?;
+fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, options: &Options ) -> Result<bool, GMError> {
+    let file = File::create( {
+        use std::path::PathBuf;
+        let mut pathbuf = PathBuf::new();
+        if let Some(ref dir) = options.output_directory { pathbuf.push(dir); }
+        pathbuf.push("type_db.cpp");
+        pathbuf
+    } )?;
     let mut context = ExportContext::new( file, "    ".to_string() );
 
     // includes
@@ -1026,7 +1037,7 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<
         write_type_instantiation( &mut context, type_info )?;
     }
 
-    writeln!( context.file )?;
+    gm_writeln!( context )?;
 
     for type_info in type_info_vec.iter() {
         write_type_implementation( &mut context, type_info_map, template_instances, type_info, 1 )?;
@@ -1216,7 +1227,7 @@ fn main() {
             .add_option(&["--no-output"], StoreTrue, "Don't output type_db.");
         ap.refer(&mut options.no_report)
             .add_option(&["--no-report"], StoreTrue, "Don't output type report.");
-        ap.refer(&mut options.output_file)
+        ap.refer(&mut options.output_directory)
             .add_option(&["-o", "--output"], StoreOption, "Output file");
         ap.refer(&mut options.additional_include_directories)
             .add_option(&["-i", "--include"], Collect, "Additional include directories.");
@@ -1303,12 +1314,12 @@ fn main() {
     }
 
     if !options.no_output {
-        match write_header( &type_info_vec, &type_info_map ) {
+        match write_header( &type_info_vec, &type_info_map, &options ) {
             Ok(_) => {},
             Err( err ) => { println!( "{}", err ); },
         }
 
-        match write_implementation( &type_info_vec, &type_info_map, &template_instances ) {
+        match write_implementation( &type_info_vec, &type_info_map, &template_instances, &options ) {
             Ok(_) => {},
             Err( err ) => { println!( "{}", err ); },
         }
