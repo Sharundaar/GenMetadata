@@ -833,7 +833,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
 
 // Impl Template
         Template( _template_type ) => {
-            gm_writeln!( context, "type_set_name( {}, \"{}\" );", type_var, type_name )?;
+            gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
             gm_writeln!( context, "type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
             if let Some(instances) = template_instances.get( type_name ) {
                 let instances_var_name = format!( "{}_instances", type_var );
@@ -856,7 +856,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
 
 // Impl Struct
         Struct( struct_type ) => {
-            gm_writeln!( context, "type_set_name( {}, \"{}\" );", type_var, type_name )?;
+            gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
             gm_writeln!( context, "type_set_id( {}, type_id<{}>() );", type_var, type_info.name )?;
             gm_writeln!( context, "struct_set_size( {}, sizeof( {} ) );", type_var, type_info.name )?;
             if let Some( ref parent ) = struct_type.parent {
@@ -909,7 +909,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 write_type_instantiation( context, type_info )?;
             }
 
-            gm_writeln!( context, "type_set_name( {}, \"{}\" );", type_var, func_name )?;
+            gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, func_name )?;
             if let Some( ref return_type ) = type_func.return_type {
                 context.begin_scope()?;
                 let return_type = &return_type;
@@ -943,7 +943,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
         Typedef( typedef_type ) => {
             let source_type_var = get_type_var( &typedef_type.source_type );
             writeln!( context.file, "{}{} = {};", indent, type_var, source_type_var )?;
-            writeln!( context.file, "{}type_set_name( {}, \"{}\" );", indent, type_var, type_name )?;
+            writeln!( context.file, "{}type_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, type_name )?;
             writeln!( context.file, "{}type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", indent, type_var, get_type_id( &type_info ) )?;
             writeln!( context.file )?;
         }
