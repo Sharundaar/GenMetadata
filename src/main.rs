@@ -864,7 +864,6 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             }
 
             if !struct_type.fields.is_empty() {
-                gm_begin_scope!( context )?;
                 let instances_var_name = format!( "{}_fields", type_var );
                 gm_writeln!( context, "auto {} = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", instances_var_name, struct_type.fields.len() )?;
                 let mut idx = 0;
@@ -875,31 +874,27 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                     idx = idx + 1;
                 }
                 gm_writeln!(context, "struct_set_fields( {}, {}, {} );", type_var, instances_var_name, struct_type.fields.len() )?;
-                gm_end_scope!( context )?;
             }
 
             if !struct_type.functions.is_empty() {
-                gm_begin_scope!( context )?;
-                gm_writeln!( context, "auto struct_functions = (FuncInfo*)alloc_data( alloc_data_param, sizeof(TypeInfo) * {} );", struct_type.functions.len() )?;
-                let mut idx = 0;
-                for func in &struct_type.functions {
+                let functions_var_name = format!( "{}_functions", type_var );
+                gm_writeln!( context,
+                  "auto {} = (TypeInfo*)alloc_data( alloc_data_param, sizeof(TypeInfo) * {} );",
+                  functions_var_name, struct_type.functions.len() )?;
+                for (idx, func) in struct_type.functions.iter().enumerate() {
                     gm_begin_scope!( context )?;
-                    context.push_type_var_override( format!("struct_functions[{}]", idx) );
+                    context.push_type_var_override( format!("{}[{}]", functions_var_name, idx) );
                     write_type_implementation( context, type_info_map, template_instances, func, indent_count+2 )?;
                     context.pop_type_var_override();
                     gm_end_scope!( context )?;
-                    idx = idx + 1;
                 }
-                gm_writeln!( context, "struct_set_functions( {}, struct_functions, {} );", type_var, struct_type.functions.len() )?;
-                gm_end_scope!( context )?;
+                gm_writeln!( context, "struct_set_functions( {}, {}, {} );", type_var, functions_var_name, struct_type.functions.len() )?;
             }
             writeln!( context.file )?;
         }
 
 // Impl Func
         Func( func_type ) => {
-
-            let type_func = func_type;
             let func_name = &type_info.name;
 
             if context.type_var_override.is_empty() {
@@ -910,20 +905,21 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             }
 
             gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, func_name )?;
-            if let Some( ref return_type ) = type_func.return_type {
-                context.begin_scope()?;
+            if let Some( ref return_type ) = func_type.return_type {
+                let return_type_var = format!("{}_return_type", sanitize_type_var( &type_var ));
+                context.push_type_var_override( return_type_var.clone() );
+                gm_writeln!( context, "FieldInfo {};", return_type_var )?;
                 let return_type = &return_type;
                 write_type_implementation( context, type_info_map, template_instances, return_type, indent_count+1 )?;
-                writeln!( context.file, "{}    func_set_return_type( {}, {} )", indent, type_var, get_field_var( &return_type.name, &return_type._field ) )?;
-                context.end_scope()?;
+                gm_writeln!( context, "func_set_return_type( {}, {} );", type_var, return_type_var )?;
+                context.pop_type_var_override();
             }
 
-            if !type_func.parameters.is_empty() {
-                context.begin_scope()?;
-                let func_parameters_type_var = format!( "{}_params", type_var );
-                gm_writeln!( context, "auto* {} = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", func_parameters_type_var, type_func.parameters.len() )?;
+            if !func_type.parameters.is_empty() {
+                let func_parameters_type_var = format!( "{}_params", sanitize_type_var( &type_var ) );
+                gm_writeln!( context, "auto* {} = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", func_parameters_type_var, func_type.parameters.len() )?;
                 let mut idx = 0;
-                for param in &type_func.parameters {
+                for param in &func_type.parameters {
                     gm_begin_scope!( context )?;
                     context.push_type_var_override( format!("{}[{}]", func_parameters_type_var, idx ) );
                     write_type_implementation( context, type_info_map, template_instances, param, indent_count+3 )?;
@@ -931,8 +927,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                     gm_end_scope!( context )?;
                     idx = idx + 1;
                 }
-                gm_writeln!( context, "func_set_parameters( {}, {}, {} );", type_var, func_parameters_type_var, type_func.parameters.len() )?;
-                context.end_scope()?;
+                gm_writeln!( context, "func_set_parameters( {}, {}, {} );", type_var, func_parameters_type_var, func_type.parameters.len() )?;
             }
 
             if context.type_var_override.is_empty() { gm_end_scope!( context )?; }

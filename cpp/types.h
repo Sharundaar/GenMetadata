@@ -175,7 +175,7 @@ void func_set_parameters( FuncInfo& type, FieldInfo* fields, uint32_t count );
 void struct_set_size( StructInfo& type, uint32_t size );
 void struct_set_parent( StructInfo& type, const TypeInfo* parent );
 void struct_set_fields( StructInfo& type, FieldInfo* fields, uint32_t count );
-void struct_set_functions( StructInfo& type, FuncInfo* functions, uint32_t count );
+void struct_set_functions( StructInfo& type, TypeInfo* functions, uint32_t count );
 void struct_is_object( StructInfo& type, bool is_object );
 void struct_set_object_data( StructInfo& type, const ObjectData object_data );
 
@@ -231,7 +231,7 @@ void struct_set_fields( StructInfo& type, FieldInfo* fields, uint32_t count )
     type.fields      = fields;
     type.field_count = count;
 }
-void struct_set_functions( StructInfo& type, FuncInfo* functions, uint32_t count )
+void struct_set_functions( StructInfo& type, TypeInfo* functions, uint32_t count )
 {
     type.functions      = functions;
     type.function_count = count;
