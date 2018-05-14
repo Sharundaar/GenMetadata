@@ -26,11 +26,14 @@ struct MyStruct2 : public Object
     unsigned char some_unsigned_char;
 };
 
+struct MarkerType {};
+
 class PhysicSystem
 {
     u32 some_data;
     std::vector<MyStruct> myStructs;
     std::vector<MyStruct2> myStructs2;
+    std::vector<std::vector<MarkerType>> blarg;
     void update( const std::vector<MyStruct>& structs, const std::vector<MyStruct2>& structs2 );
 };
 

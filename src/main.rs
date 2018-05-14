@@ -749,6 +749,11 @@ fn get_type_var( type_name: &String ) -> String {
                                  .replace("/", "_div") )
 }
 
+fn sanitize_type_var( type_name: &String ) -> String {
+    type_name.replace("[", "_")
+             .replace("]", "_")
+}
+
 fn get_type_id( type_info: &TypeInfo ) -> String {
     let type_name = &type_info.name;
     if type_info._scalar.is_some() {
@@ -832,27 +837,19 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             gm_writeln!( context, "type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
             if let Some(instances) = template_instances.get( type_name ) {
                 let instances_var_name = format!( "{}_instances", type_var );
-                gm_begin_scope!( context )?;
                 gm_writeln!( context, "auto {} = (TemplateInstance*)alloc_data( alloc_data_param, sizeof(TemplateInstance) * {} );", instances_var_name, instances.len() )?;
-                gm_begin_scope!( context )?;
-                let mut instance_index = 0;
-                for instance in instances.iter() {
-                    let instance_param_var_name = "params".to_string();
-                    gm_begin_scope!( context )?;
-                    gm_writeln!( context, "auto {} = (TemplateParam*)alloc_data( alloc_data_param, sizeof(TemplateParam) * {} );", instance_param_var_name, instance.len() )?;
-                    let mut param_index = 0;
-                    for param in instance.iter() {
-                        context.push_type_var_override( format!( "{}[{}].info", instance_param_var_name, param_index ) );
+                gm_writeln!( context, "template_set_instances( {}, {}, {} );", type_var, instances_var_name, instances.len() )?;
+                for (inst_index, instance) in instances.iter().enumerate() {
+                    gm_writeln!( context, 
+                      "template_instance_set_params( &{}[{}], (TemplateParam*)alloc_data( alloc_data_param, sizeof(TemplateParam) * {} ), {} );", 
+                      instances_var_name, inst_index, instance.len(), instance.len() )?;
+                    for (param_index, param) in instance.iter().enumerate() {
+                        context.push_type_var_override( format!( "{}[{}].params[{}].info", instances_var_name, inst_index, param_index ) );
                         write_type_implementation( context, type_info_map, template_instances, &param, indent_count + 3 )?;
                         context.pop_type_var_override();
-                        param_index += 1;
                     }
-                    gm_end_scope!( context )?;
-                    instance_index += 1;
+                    if inst_index < instances.len()-1 { gm_writeln!( context )?; }
                 }
-                gm_end_scope!( context )?;
-                gm_writeln!( context, "template_set_instances( {}, {}, {} );", type_var, instances_var_name, instances.len() )?;
-                gm_end_scope!( context )?;
             }
             gm_writeln!( context )?;
         }
@@ -861,22 +858,23 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
         Struct( struct_type ) => {
             gm_writeln!( context, "type_set_name( {}, \"{}\" );", type_var, type_name )?;
             gm_writeln!( context, "type_set_id( {}, type_id<{}>() );", type_var, type_info.name )?;
-            gm_writeln!( context, "struct_set_size( {}.struct_info, sizeof( {} ) );", type_var, type_info.name )?;
+            gm_writeln!( context, "struct_set_size( {}, sizeof( {} ) );", type_var, type_info.name )?;
             if let Some( ref parent ) = struct_type.parent {
-                gm_writeln!( context, "struct_set_parent( {}.struct_info, &{} );", type_var, get_type_var( &parent ) )?;
+                gm_writeln!( context, "struct_set_parent( {}, &{} );", type_var, get_type_var( &parent ) )?;
             }
 
             if !struct_type.fields.is_empty() {
                 gm_begin_scope!( context )?;
-                gm_writeln!( context, "auto struct_fields = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", struct_type.fields.len() )?;
+                let instances_var_name = format!( "{}_fields", type_var );
+                gm_writeln!( context, "auto {} = (FieldInfo*)alloc_data( alloc_data_param, sizeof(FieldInfo) * {} );", instances_var_name, struct_type.fields.len() )?;
                 let mut idx = 0;
                 for field in &struct_type.fields {
-                    context.push_type_var_override( format!("struct_fields[{}]", idx) );
+                    context.push_type_var_override( format!("{}[{}]", instances_var_name, idx) );
                     write_type_implementation( context, type_info_map, template_instances, field, indent_count+2 )?;
                     context.pop_type_var_override();
                     idx = idx + 1;
                 }
-                gm_writeln!(context, "struct_set_fields( {}, struct_fields, {} );", type_var, struct_type.fields.len() )?;
+                gm_writeln!(context, "struct_set_fields( {}, {}, {} );", type_var, instances_var_name, struct_type.fields.len() )?;
                 gm_end_scope!( context )?;
             }
 
@@ -953,28 +951,33 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
 // Impl Field
         Field( field_type ) => {
             if context.type_var_override.is_empty() { writeln!( context.file, "{}FieldInfo {};", indent, type_var )?; };
-            writeln!( context.file, "{}field_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, field_type.field_name)?;
-            if field_type.offset != 0 {
-                writeln!( context.file, "{}field_set_offset( {}, {} );", indent, type_var, field_type.offset )?;
+            if field_type.field_name.len() > 0 {
+                gm_writeln!( context, "field_set_name( {}, copy_string( \"{}\" ) );", type_var, field_type.field_name)?;
             }
-            writeln!( context.file, "{}field_set_modifiers( {}, (FieldInfoModifier) ({}) );", indent, type_var, build_modifier_string( &field_type ) )?;
+            if field_type.offset != 0 {
+                gm_writeln!( context, "field_set_offset( {}, {} );", type_var, field_type.offset )?;
+            }
+            gm_writeln!( context, "field_set_modifiers( {}, (FieldInfoModifier) ({}) );", type_var, build_modifier_string( &field_type ) )?;
 
             if let Some( registered_type ) = type_info_map.get( &type_info.name ) {
                 if registered_type._struct.is_some() {
-                    writeln!( context.file, "{}field_set_type( {}, &{} );", indent, type_var, get_type_var( &registered_type.name ) )?;
+                    gm_writeln!( context, "field_set_type( {}, &{} );", type_var, get_type_var( &registered_type.name ) )?;
                 } else if let Some( ref template_args ) = field_type.templates {
                     let template_src_type_var = get_type_var( &type_info.name );
-                    writeln!( context.file, "{}TemplateParam {}_template_params[{}];", indent, type_var, template_args.len() )?;
-                    let mut i = 0;
-                    for arg in template_args {
-                        context.begin_scope()?;
-                        write_type_implementation( context, type_info_map, template_instances, &arg, indent_count + 1 )?;
-                        let field_var = get_field_var( &arg.name, &arg._field );
-                        writeln!( context.file, "    {}{}_template_params[{}] = TemplateParam{{ {}, 0 }};", indent, type_var, i, field_var )?;
-                        context.end_scope()?;
-                        i = i + 1;
+                    let template_src_instances = &template_instances[&type_info.name];
+                    // find instance index
+                    let mut inst_index = 0;
+                    for inst in template_src_instances.iter() {
+                        if inst == template_args {
+                            break;
+                        }
+                        inst_index += 1;
                     }
-                    writeln!( context.file, "{}field_set_template_instance_ref( {}, {}.get_instance( {}_template_params ) );", indent, type_var, template_src_type_var, type_var )?;
+                    let inst_index = inst_index;
+
+                    gm_writeln!( context, 
+                      "field_set_template_instance( {}, {}, {} );",
+                      type_var, template_src_type_var, inst_index )?;
                 }
             }
         }

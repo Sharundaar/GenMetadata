@@ -183,6 +183,7 @@ void enum_set_underlying_type( EnumInfo& type, const TypeInfo* underlying_type )
 void enum_set_values( EnumInfo& type, EnumValue* values, uint32_t count );
 
 void template_set_instances( TemplateInfo& type, TemplateInstance* instances, uint32_t count );
+void template_instance_set_params( TemplateInstance* instance, TemplateParam* params, uint32_t count );
 
 void type_set_name( TypeInfo& type, const char* name );
 void type_set_type( TypeInfo& type, TypeInfoType type_type );
@@ -190,7 +191,7 @@ void type_set_id( TypeInfo& type, TypeId type_id );
 
 void field_set_name( FieldInfo& field, const char* name );
 void field_set_type( FieldInfo& field, const TypeInfo* type );
-void field_set_template_instance( FieldInfo& field, const TemplateInstance* instance );
+void field_set_template_instance( FieldInfo& field, const TemplateInfo& source, int instance_index );
 void field_set_offset( FieldInfo& field, uint32_t offset );
 void field_set_modifiers( FieldInfo& field, FieldInfoModifier modifiers );
 
@@ -255,6 +256,12 @@ void template_set_instances( TemplateInfo& type, TemplateInstance* instances, ui
 {
     type.instances      = instances;
     type.instance_count = count;
+}
+
+void template_instance_set_params( TemplateInstance* instance, TemplateParam* params, uint32_t count )
+{
+    instance->params = params;
+    instance->param_count = count;
 }
 
 void type_set_name( TypeInfo& type, const char* name )
@@ -324,7 +331,7 @@ FieldInfo::operator bool() const
 
 void field_set_name( FieldInfo& field, const char* name ) { field.name = name; }
 void field_set_type( FieldInfo& field, const TypeInfo* type ) { field.type = type; }
-void field_set_template_instance( FieldInfo& field, TemplateInstance* instance ) { field.template_instance = instance; }
+void field_set_template_instance( FieldInfo& field, const TemplateInfo& source, int instance_index ) { field.template_instance = source.instances[instance_index]; }
 void field_set_offset( FieldInfo& field, uint32_t offset ) { field.offset = offset; }
 void field_set_modifiers( FieldInfo& field, FieldInfoModifier modifiers ) { field.modifier = modifiers; }
 
