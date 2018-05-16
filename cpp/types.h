@@ -114,7 +114,7 @@ struct TemplateParam
 
 struct TemplateInstance
 {
-    const TemplateInfo*                definition;
+    const TypeInfo* definition;
 
     TemplateParam* params;
     uint32_t       param_count;
@@ -156,6 +156,7 @@ struct TypeInfo
         EnumInfo     enum_info;
     };
 
+    TypeInfo();
     TypeInfo& operator=( const TypeInfo& other );
 
     operator TemplateInfo&();
@@ -163,6 +164,12 @@ struct TypeInfo
     operator StructInfo&();
     operator FuncInfo&();
     operator EnumInfo&();
+
+    operator const TemplateInfo&() const;
+    operator const ScalarInfo&() const;
+    operator const StructInfo&() const;
+    operator const FuncInfo&() const;
+    operator const EnumInfo&() const;
 };
 
 void scalar_set_type( ScalarInfo& type, ScalarInfoType scalar_type );
@@ -296,22 +303,30 @@ void type_set_id( TypeInfo& type, TypeId type_id )
     type.type_id = type_id;
 }
 
+TypeInfo::TypeInfo() {}
 TypeInfo& TypeInfo::operator=( const TypeInfo& other )
 {
     memcpy( this, &other, sizeof(TypeInfo) );
+    return *this;
 }
 
-operator TypeInfo::TemplateInfo&() { return this->template_info; }
-operator TypeInfo::ScalarInfo&() { return this->scalar_info; }
-operator TypeInfo::StructInfo&() { return this->struct_info; }
-operator TypeInfo::FuncInfo&() { return this->func_info; }
-operator TypeInfo::EnumInfo&() { return this->enum_info; }
+TypeInfo::operator TemplateInfo&() { return this->template_info; }
+TypeInfo::operator ScalarInfo&() { return this->scalar_info; }
+TypeInfo::operator StructInfo&() { return this->struct_info; }
+TypeInfo::operator FuncInfo&() { return this->func_info; }
+TypeInfo::operator EnumInfo&() { return this->enum_info; }
+
+TypeInfo::operator const TemplateInfo&() const { return this->template_info; }
+TypeInfo::operator const ScalarInfo&() const { return this->scalar_info; }
+TypeInfo::operator const StructInfo&() const { return this->struct_info; }
+TypeInfo::operator const FuncInfo&() const { return this->func_info; }
+TypeInfo::operator const EnumInfo&() const { return this->enum_info; }
 
 FieldInfo& FieldInfo::operator=( const FieldInfo& other )
 {
     name          = other.name;
     type          = other.type;
-    template_type = other.template_type;
+    template_instance = other.template_instance;
     modifier      = other.modifier;
     offset        = other.offset;
     return *this;
@@ -319,19 +334,19 @@ FieldInfo& FieldInfo::operator=( const FieldInfo& other )
 
 bool FieldInfo::operator==( const FieldInfo& other ) const
 {
-    return ( this->type == other.type && this->template_type == other.template_type ) 
+    return ( this->type == other.type && this->template_instance == other.template_instance ) 
            && this->modifier == other.modifier 
            && this->offset == other.offset;
 }
 
 FieldInfo::operator bool() const
 {
-    return this->type != nullptr || this->template_type != nullptr;
+    return this->type != nullptr || this->template_instance != nullptr;
 }
 
 void field_set_name( FieldInfo& field, const char* name ) { field.name = name; }
 void field_set_type( FieldInfo& field, const TypeInfo* type ) { field.type = type; }
-void field_set_template_instance( FieldInfo& field, const TemplateInfo& source, int instance_index ) { field.template_instance = source.instances[instance_index]; }
+void field_set_template_instance( FieldInfo& field, const TemplateInfo& source, int instance_index ) { field.template_instance = &source.instances[instance_index]; }
 void field_set_offset( FieldInfo& field, uint32_t offset ) { field.offset = offset; }
 void field_set_modifiers( FieldInfo& field, FieldInfoModifier modifiers ) { field.modifier = modifiers; }
 
@@ -383,14 +398,7 @@ bool TemplateInfo::has_instance( const TemplateParam* params, uint32_t param_cou
 TemplateInstance* TemplateInfo::get_instance( const TemplateParam* params, uint32_t param_count )
 {
     auto instance_index = get_instance_internal( params, param_count );
-    return instance_index == -1 ? nullptr : instances[ instance_index ];
+    return instance_index == -1 ? nullptr : &instances[ instance_index ];
 }
-
-const TemplateInstance* TemplateInstanceRef::operator->() const { return definition == nullptr ? nullptr : &definition->instances[inst_idx]; }
-
-bool TemplateInstanceRef::operator==( const TemplateInstanceRef& other ) const { return definition == other.definition && inst_idx == other.inst_idx; }
-bool TemplateInstanceRef::operator==( const std::nullptr_t other ) const { return definition == nullptr; }
-bool TemplateInstanceRef::operator!=( const std::nullptr_t other ) const { return definition != nullptr; }
-TemplateInstanceRef::operator bool() const { return *this != nullptr; }
 
 #endif

@@ -641,7 +641,7 @@ fn write_header( type_info_vec : &Vec<TypeInfo>, type_info_map: &HashMap<String,
 
     writeln!( file )?;
 
-    writeln!( file, "enum class LocalTypeId : u32")?;
+    writeln!( file, "enum class LocalTypeId : uint32_t")?;
     writeln!( file, "{{")?;
     for type_info in type_info_vec.iter() {
         use TypeInfoType::*;
@@ -676,10 +676,10 @@ fn write_header( type_info_vec : &Vec<TypeInfo>, type_info_map: &HashMap<String,
     for type_info in type_info_vec.iter() {
         use TypeInfoType::*;
         match get_type_info_type( &type_info ) {
-            Scalar(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (u32)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
+            Scalar(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (uint32_t)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
             Typedef(_) => { continue; }
-            Struct(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (u32)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
-            Enum(_)    => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (u32)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
+            Struct(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (uint32_t)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
+            Enum(_)    => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (uint32_t)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
             Func(_)    => { continue; }
             Field(_)   => { continue; }
             Template(_) => { continue; }
@@ -834,7 +834,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
 // Impl Template
         Template( _template_type ) => {
             gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
-            gm_writeln!( context, "type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
+            gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
             if let Some(instances) = template_instances.get( type_name ) {
                 let instances_var_name = format!( "{}_instances", type_var );
                 gm_writeln!( context, "auto {} = (TemplateInstance*)alloc_data( alloc_data_param, sizeof(TemplateInstance) * {} );", instances_var_name, instances.len() )?;
@@ -843,6 +843,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                     gm_writeln!( context, 
                       "template_instance_set_params( &{}[{}], (TemplateParam*)alloc_data( alloc_data_param, sizeof(TemplateParam) * {} ), {} );", 
                       instances_var_name, inst_index, instance.len(), instance.len() )?;
+                    gm_writeln!( context, "{}[{}].definition = &{};", instances_var_name, inst_index, &type_var )?;
                     for (param_index, param) in instance.iter().enumerate() {
                         context.push_type_var_override( format!( "{}[{}].params[{}].info", instances_var_name, inst_index, param_index ) );
                         write_type_implementation( context, type_info_map, template_instances, &param, indent_count + 3 )?;
@@ -939,7 +940,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             let source_type_var = get_type_var( &typedef_type.source_type );
             writeln!( context.file, "{}{} = {};", indent, type_var, source_type_var )?;
             writeln!( context.file, "{}type_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, type_name )?;
-            writeln!( context.file, "{}type_set_id( {}, {{ 0, (u32)LocalTypeId::{} }} );", indent, type_var, get_type_id( &type_info ) )?;
+            writeln!( context.file, "{}type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", indent, type_var, get_type_id( &type_info ) )?;
             writeln!( context.file )?;
         }
 

@@ -4,73 +4,41 @@
 
 #define TYPES_IMPLEMENTATION
 #include "types.h"
+#undef TYPES_IMPLEMENTATION
 #include "type_db.h"
 #include "test.h"
 
 using namespace std;
 
-u8 s_alloc_buffer[0x4000];
-u32 s_alloc_index = 0;
-TypeInfo& alloc_type( TypeInfo_Type type, void* buffer )
+u8 s_alloc_buffer[0x10000];
+u32 s_type_alloc_index = 0;
+u32 s_data_alloc_index = 0;
+TypeInfo& alloc_type( void* buffer )
 {
     TypeInfo* alloc = nullptr;
     u8* byte_buffer = (u8*)buffer;
-    switch( type )
-    {
-    case TypeInfo_Type::SCALAR:
-        alloc = new (byte_buffer+s_alloc_index) ScalarInfo();
-        s_alloc_index += sizeof( ScalarInfo );
-        break;
-    case TypeInfo_Type::FUNCTION:
-        alloc = new (byte_buffer+s_alloc_index) FuncInfo();
-        s_alloc_index += sizeof( FuncInfo );
-        break;
-    case TypeInfo_Type::ENUM:
-        alloc = new (byte_buffer+s_alloc_index) EnumInfo();
-        s_alloc_index += sizeof( EnumInfo );
-        break;
-    case TypeInfo_Type::STRUCT:
-        alloc = new (byte_buffer+s_alloc_index) StructInfo();
-        s_alloc_index += sizeof( StructInfo );
-        break;
-    case TypeInfo_Type::TEMPLATE:
-        alloc = new (byte_buffer+s_alloc_index) TemplateInfo();
-        s_alloc_index += sizeof( TemplateInfo );
-        break;
-    }
+    alloc = new (byte_buffer + s_type_alloc_index) TypeInfo();
+    s_type_alloc_index += sizeof( TypeInfo );
     return *alloc;
+}
+
+void* alloc_data( void* buffer, uint32_t size )
+{
+    void* alloc = (u32*)buffer + s_data_alloc_index;
+    s_data_alloc_index += size;
+    return alloc;
 }
 
 const TypeInfo* s_all_types[1024];
 void init_type_system()
 {
-    register_types( alloc_type, s_alloc_buffer );
+    register_types( alloc_type, s_alloc_buffer, alloc_data, s_alloc_buffer + 0x5000);
     u8* it = s_alloc_buffer;
-    while( it < s_alloc_buffer + s_alloc_index )
+    while( it < s_alloc_buffer + s_type_alloc_index )
     {
         auto type = (TypeInfo*)it;
-        switch( type->type )
-        {
-        case TypeInfo_Type::SCALAR:
-            s_all_types[type->type_id.local_type] = type;
-            it += sizeof( ScalarInfo );
-            break;
-        case TypeInfo_Type::FUNCTION:
-            it += sizeof( FuncInfo );
-            break;
-        case TypeInfo_Type::ENUM:
-            s_all_types[type->type_id.local_type] = type;
-            it += sizeof( EnumInfo );
-            break;
-        case TypeInfo_Type::STRUCT:
-            s_all_types[type->type_id.local_type] = type;
-            it += sizeof( StructInfo );
-            break;
-        case TypeInfo_Type::TEMPLATE:
-            s_all_types[type->type_id.local_type] = type;
-            it += sizeof( TemplateInfo );
-            break;
-        }
+        s_all_types[type->type_id.local_type] = type;
+        it += sizeof( TypeInfo );
     }
 }
 
@@ -79,32 +47,33 @@ int main( int, char** )
     init_type_system();
     for( const auto** typePtr = &s_all_types[0]; *typePtr != nullptr; ++typePtr )
     {
-        const auto* type = *typePtr;
-        switch( type->type )
+        const auto& type = **typePtr;
+        switch( type.type )
         {
-        case TypeInfo_Type::STRUCT: {
-                cout << "Struct: " << type->name << endl;
-                const auto* struct_type = (StructInfo*) type;
-                for( auto& member : struct_type->fields )
+        case TypeInfoType::Struct: {
+                cout << "Struct: " << type.name << endl;
+                const StructInfo& struct_type = type;
+                for( u32 field_index = 0; field_index < struct_type.field_count; ++field_index )
                 {
+                    const auto& member = struct_type.fields[field_index];
                     if( member.type )
                         cout << "\t" << member.offset << ": " << member.type->name << " " << member.name << endl;
-                    if( member.template_type )
+                    if( member.template_instance )
                     {
-                        cout << "\t" << member.offset << ": " << member.template_type->definition->name << "( ";
-                        for(int i=0; i < member.template_type->params.size(); ++i)
+                        cout << "\t" << member.offset << ": " << member.template_instance->definition->name << "( ";
+                        for(int i=0; i < member.template_instance->param_count; ++i)
                         {
-                            auto& param = member.template_type->params[i];
+                            auto& param = member.template_instance->params[i];
                             if( param.info.type )
                             {
                                 if( i>0 )
                                     cout << ", ";
-                                if( param.info.modifier & FieldInfo_Modifier::CONSTANT )
+                                if( param.info.modifier & FieldInfoModifier::CONSTANT )
                                     cout << "const ";
                                 cout << param.info.type->name;
-                                if( param.info.modifier & FieldInfo_Modifier::POINTER )
+                                if( param.info.modifier & FieldInfoModifier::POINTER )
                                     cout << "*";
-                                if( param.info.modifier & FieldInfo_Modifier::REFERENCE )
+                                if( param.info.modifier & FieldInfoModifier::REFERENCE )
                                     cout << "&";
                             }
                         }
@@ -112,26 +81,27 @@ int main( int, char** )
                     }
                 }
 
-                for( auto& func : struct_type->functions )
+                for( u32 func_index = 0; func_index < struct_type.function_count; ++func_index )
                 {
-                    cout << "\t" << func.name << " -> " << (func.return_type ? func.return_type.type->name : "void") << endl;
+                    const auto& func = struct_type.functions[func_index];
+                    cout << "\t" << func.name << " -> " << (func.func_info.return_type ? func.func_info.return_type.type->name : "void") << endl;
                 }
                 break;
             }
-        case TypeInfo_Type::SCALAR: {
-            cout << "Scalar: " << type->name << endl;
+        case TypeInfoType::Scalar: {
+            cout << "Scalar: " << type.name << endl;
             break;
         }
-        case TypeInfo_Type::FUNCTION: {
-            cout << "Function: " << type->name << endl;
+        case TypeInfoType::Function: {
+            cout << "Function: " << type.name << endl;
             break;
         }
-        case TypeInfo_Type::TEMPLATE: {
-            cout << "Template: " << type->name << endl;
+        case TypeInfoType::Template: {
+            cout << "Template: " << type.name << endl;
             break;
         }
-        case TypeInfo_Type::ENUM: {
-            cout << "Enum: " << type->name << endl;
+        case TypeInfoType::Enum: {
+            cout << "Enum: " << type.name << endl;
             break;
         }
         }
