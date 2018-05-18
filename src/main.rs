@@ -421,9 +421,9 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
             let type_info = type_info;
             Ok( type_info )
         },
-        ( None, Some(_) ) => Err( GMError::error( "Couldn't generate a TypeInfo from this StructDecl (missing name).".to_string() ) ),
-        ( Some(_), None ) => Err( GMError::error( "Couldn't generate a TypeInfo from this StructDecl (missing type).".to_string() ) ),
-        ( None, None ) => Err( GMError::error( "Couldn't generate a TypeInfo from this StructDecl.".to_string() ) ),
+        ( None, Some(_) ) => gm_error!( "Couldn't generate a TypeInfo from this StructDecl (missing name).".to_string() ),
+        ( Some(_), None ) => gm_error!( "Couldn't generate a TypeInfo from this StructDecl (missing type).".to_string() ),
+        ( None, None )    => gm_error!( "Couldn't generate a TypeInfo from this StructDecl.".to_string() ),
     }
 }
 
@@ -605,7 +605,7 @@ fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
         EntityKind::Method        => from_entity_funcdecl( entity ),
         EntityKind::ClassTemplate => from_entity_classtemplate( entity ),
         EntityKind::TypedefDecl   => from_entity_typedefdecl( entity ),
-        kind => Err( GMError::info( format!( "Unhandled entity kind: {:?}", kind) ) ),
+        kind => gm_info!( "Unhandled entity kind: {:?}", kind),
     }
 }
 

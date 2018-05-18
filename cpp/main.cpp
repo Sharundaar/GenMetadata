@@ -57,8 +57,10 @@ int main( int, char** )
                 {
                     const auto& member = struct_type.fields[field_index];
                     if( member.type )
+                    {
                         cout << "\t" << member.offset << ": " << member.type->name << " " << member.name << endl;
-                    if( member.template_instance )
+                    }
+                    else if( member.template_instance )
                     {
                         cout << "\t" << member.offset << ": " << member.template_instance->definition->name << "( ";
                         for(int i=0; i < member.template_instance->param_count; ++i)
@@ -78,6 +80,10 @@ int main( int, char** )
                             }
                         }
                         cout << " )" << endl;
+                    }
+                    else
+                    {
+                        cout << "\t" << member.offset << ": (unknown) " << member.name << endl;
                     }
                 }
 
