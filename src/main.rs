@@ -112,6 +112,16 @@ enum GMErrorGravity {
     ERROR,
 }
 
+#[derive(Default)]
+struct TypeDependency {
+}
+
+struct FromEntityOk(TypeInfo, TypeDependency);
+impl From<TypeInfo> for FromEntityOk {
+    fn from( ti: TypeInfo ) -> FromEntityOk {
+        FromEntityOk( ti, TypeDependency::default() )
+    }
+}
 
 struct GMError {
     gravity: GMErrorGravity,
@@ -340,6 +350,10 @@ impl TypeInfo {
     }
 }
 
+fn from_entity_ok( type_info: TypeInfo ) -> Result<FromEntityOk, GMError> {
+    Ok( FromEntityOk::from( type_info ) )
+}
+
 fn has_object_parent( struct_info: &TypeInfoStruct, type_info_map: &HashMap<String, &TypeInfo> ) -> bool {
     if let Some( ref parent ) = struct_info.parent {
         if parent == "Object" {
@@ -378,7 +392,7 @@ fn get_struct_kind_from_entity_kind( ent_kind: EntityKind ) -> TypeInfoStructKin
     }
 }
 
-fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
+fn from_entity_structdecl( entity: &Entity ) -> Result<FromEntityOk, GMError> {
     if !entity.is_definition() { return gm_info!( "not definition" ); }
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( _ ) ) => {
@@ -397,13 +411,13 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
                         },
                         FieldDecl => {
                             match from_entity( &child ) {
-                                Ok( type_field ) => { type_info_struct.fields.push( type_field ); },
+                                Ok( FromEntityOk( type_field, dependencies ) ) => { type_info_struct.fields.push( type_field ); },
                                 Err( err ) => { println!( "{}", err )},
                             }
                         },
                         Method => {
                             match from_entity( &child ) {
-                                Ok( type_function ) => { type_info_struct.functions.push( type_function ); },
+                                Ok( FromEntityOk( type_function, dependencies ) ) => { type_info_struct.functions.push( type_function ); },
                                 Err( _ ) => {},
                             }
                         },
@@ -419,7 +433,7 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
             }
 
             let type_info = type_info;
-            Ok( type_info )
+            from_entity_ok( type_info )
         },
         ( None, Some(_) ) => gm_error!( "Couldn't generate a TypeInfo from this StructDecl (missing name).".to_string() ),
         ( Some(_), None ) => gm_error!( "Couldn't generate a TypeInfo from this StructDecl (missing type).".to_string() ),
@@ -475,7 +489,7 @@ fn make_field_from_type<'a>( field_info: &mut TypeInfoField, type_def: &'a Type 
     Ok( type_def )
 }
 
-fn from_entity_fielddecl( entity: &Entity, parent_type: Option<&Type> ) -> Result<TypeInfo, GMError> {
+fn from_entity_fielddecl( entity: &Entity, parent_type: Option<&Type> ) -> Result<FromEntityOk, GMError> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
             // type name filled in later
@@ -496,13 +510,13 @@ fn from_entity_fielddecl( entity: &Entity, parent_type: Option<&Type> ) -> Resul
             }
 
             let type_info = type_info;
-            Ok( type_info )
+            from_entity_ok( type_info )
         },
         _ => Err( GMError::error( "Couldn't generate Field from this FieldDecl.".to_string() ) ),
     }
 }
 
-fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
+fn from_entity_enumdecl( entity: &Entity ) -> Result<FromEntityOk, GMError> {
     if !entity.is_definition() { return gm_info!( "not definition" ); }
     match ( entity.is_scoped(), entity.get_type() ) {
         ( true, Some( type_def ) ) => {
@@ -517,14 +531,14 @@ fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
             }
 
             let type_info = type_info;
-            Ok( type_info )
+            from_entity_ok( type_info )
         },
         ( false, Some( type_def ) ) => gm_warning!( "Enum {} is unscoped, can't generate TypeInfo for unscoped enums.", type_def.get_display_name() ),
         _ => gm_error!( "Couldn't generate TypeInfo from this EnumDecl." ),
     }
 }
 
-fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
+fn from_entity_funcdecl( entity: &Entity ) -> Result<FromEntityOk, GMError> {
     if let Some( _ ) = entity.get_template() { return gm_info!( "we don't handle template func." ); }
 
     match ( entity.get_name(), entity.get_type() ) {
@@ -543,18 +557,18 @@ fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
                 let mut type_func = type_info._func.as_mut().unwrap();
                 for child in entity.get_children().iter().filter( |x| x.get_kind() == EntityKind::ParmDecl ) {
                     match from_entity( child ) {
-                        Ok( param_type ) => type_func.parameters.push( param_type ),
+                        Ok( FromEntityOk( param_type, dependencies ) ) => type_func.parameters.push( param_type ),
                         Err( _ ) => {}
                     };
                 }
             }
-            Ok( type_info )
+            from_entity_ok( type_info )
         }
         _ => Err( GMError::info( "Missing name or type for func decl.".to_string() ) )
     }
 }
 
-fn from_entity_classtemplate( entity: &Entity ) -> Result<TypeInfo, GMError> {
+fn from_entity_classtemplate( entity: &Entity ) -> Result<FromEntityOk, GMError> {
     if !entity.is_definition() {
         return Err( GMError::info( "Not definition.".to_string() ) );
     }
@@ -577,24 +591,24 @@ fn from_entity_classtemplate( entity: &Entity ) -> Result<TypeInfo, GMError> {
         };
     }
 */
-    Ok( type_info )
+    from_entity_ok( type_info )
 }
 
-fn from_entity_typedefdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
+fn from_entity_typedefdecl( entity: &Entity ) -> Result<FromEntityOk, GMError> {
     let underlying_type = entity.get_type().unwrap().get_canonical_type().get_display_name();
     let type_name = entity.get_name().unwrap();
 
     let built_in_types = get_built_in_types();
     for built_in in built_in_types {
         if built_in.name == underlying_type {
-            return Ok( TypeInfo::new( type_name ).make_typedef( underlying_type ) );
+            return from_entity_ok( TypeInfo::new( type_name ).make_typedef( underlying_type ) );
         }
     }
 
     Err( GMError::info( format!( "Found typedef that's not a basic type {} -> {}.", underlying_type, type_name ) ) )
 }
 
-fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
+fn from_entity( entity: &Entity ) -> Result<FromEntityOk, GMError> {
     match entity.get_kind() {
         EntityKind::StructDecl    => from_entity_structdecl( entity ),
         EntityKind::ClassDecl     => from_entity_structdecl( entity ),
@@ -1198,7 +1212,7 @@ fn parse_translation_unit( tu: &TranslationUnit, options: &Options ) -> Vec<Type
 
     for entity in tu.get_entity().get_children().iter().filter( |e| !e.is_in_system_header() ) {
         match from_entity( &entity ) {
-            Ok( type_info ) =>  {
+            Ok( FromEntityOk( type_info, dependencies ) ) =>  {
                 type_info_vec.push( type_info );
             },
             Err( error ) => {
