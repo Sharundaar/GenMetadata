@@ -37,7 +37,8 @@ void init_type_system()
     while( it < s_alloc_buffer + s_type_alloc_index )
     {
         auto type = (TypeInfo*)it;
-        s_all_types[type->type_id.local_type] = type;
+        if( type->type_id.local_type != INVALID_TYPE_ID )
+            s_all_types[type->type_id.local_type] = type;
         it += sizeof( TypeInfo );
     }
 }

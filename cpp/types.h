@@ -15,13 +15,13 @@ struct TemplateInstance;
 struct TemplateParam;
 struct TemplateInstanceRef;
 
-struct TypeId
-{
-    uint32_t global_type = 0;
-    uint32_t local_type  = 0;
-};
 
 #define INVALID_TYPE_ID ((uint32_t)0-1)
+struct TypeId
+{
+    uint32_t global_type = INVALID_TYPE_ID;
+    uint32_t local_type  = INVALID_TYPE_ID;
+};
 template<typename T> constexpr TypeId type_id();
 
 enum class ScalarInfoType

@@ -25,9 +25,15 @@ struct Options {
 }
 
 #[derive(Clone, Default, PartialEq, Eq )]
+struct TypeInfoSource {
+    file_path: String,
+    is_system_file: bool,
+}
+
+#[derive(Clone, Default, PartialEq, Eq )]
 struct TypeInfo {
     name: String,
-    source_file: Option<String>,
+    source_file: Option<TypeInfoSource>,
     built_in: bool,
     _struct:     Option<TypeInfoStruct>,
     _field:      Option<TypeInfoField>,
@@ -136,9 +142,28 @@ struct TypeInfoStore {
 }
 
 impl TypeInfoStore {
+    fn reserve_name( &mut self, tin: String ) -> usize {
+        if self.map.contains_key( &tin ) {
+            self.map[&tin]
+        } else {
+            self.data.push( TypeInfo{ name: tin.clone(), ..TypeInfo::default() } );
+            self.map.insert( tin, self.data.len()-1 );
+            self.data.len()-1
+        }
+    }
+
+    fn replace_type_info( &mut self, ti: TypeInfo, index: usize ) {
+        self.data[index] = ti;
+    }
+
     fn push( &mut self, ti: TypeInfo ) {
-        self.map.insert( ti.name.clone(), self.data.len() );
-        self.data.push( ti );
+        if self.map.contains_key( &ti.name ) {
+            let index = self.map[&ti.name];
+            self.replace_type_info( ti, index );
+        } else {
+            self.map.insert( ti.name.clone(), self.data.len() );
+            self.data.push( ti );
+        }
     }
 
     fn has( &self, name: &String ) -> bool {
@@ -161,12 +186,14 @@ struct ParseContext {
 
 impl ParseContext {
     fn store_type_info( &mut self, ti: TypeInfo ) -> &TypeInfo {
-        if !self.store.has( &ti.name ) {
-            self.store.push( ti );
-            self.store.data.last().unwrap()
-        } else {
-            self.store.get( &ti.name ).unwrap()
-        }
+        self.store.push( ti );
+        self.store.data.last().unwrap()
+    }
+    fn reserve_type_info_name( &mut self, tin: String ) -> usize {
+        self.store.reserve_name(tin)
+    }
+    fn replace_reserved_type_info( &mut self, ti: TypeInfo, index: usize ) {
+        self.store.replace_type_info( ti, index );
     }
 }
 
@@ -397,11 +424,14 @@ fn has_object_parent( struct_info: &TypeInfoStruct, type_info_store: &TypeInfoSt
     return false;
 }
 
-fn get_source_file( entity: &Entity ) -> Option<String> {
+fn get_source_file( entity: &Entity ) -> Option<TypeInfoSource> {
     match entity.get_location() {
         Some( location ) => {
             if let Some( file_location ) = location.get_file_location().file {
-                Some( file_location.get_path().file_name().unwrap().to_str().unwrap().to_string() )
+                Some( TypeInfoSource {
+                    file_path: file_location.get_path().file_name().unwrap().to_str().unwrap().to_string(),
+                    is_system_file: location.is_in_system_header()
+                } )
             }
             else {
                 None
@@ -421,10 +451,16 @@ fn get_struct_kind_from_entity_kind( ent_kind: EntityKind ) -> TypeInfoStructKin
 
 fn from_entity_structdecl( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
     if !entity.is_definition() { return gm_info!( "not definition" ); }
+
+    if let Some(entity) = entity.get_template() {
+        return from_entity( context, &entity );
+    }
+
     match ( entity.get_name(), entity.get_type() ) {
-        ( Some( name ), Some( _ ) ) => {
-            let mut type_info = TypeInfo::new( name ).make_struct( &None, get_struct_kind_from_entity_kind( entity.get_kind() ) );
+        ( Some( _ ), Some( type_def ) ) => {
+            let mut type_info = TypeInfo::new( sanitize_type_name(&type_def) ).make_struct( &None, get_struct_kind_from_entity_kind( entity.get_kind() ) );
             type_info.source_file = get_source_file( entity );
+            let spot_index = context.reserve_type_info_name( type_info.name.clone() );
 
             {
                 use EntityKind::*;
@@ -460,7 +496,7 @@ fn from_entity_structdecl( context: &mut ParseContext, entity: &Entity ) -> Resu
             }
 
             let type_info = type_info;
-            context.store_type_info( type_info );
+            context.replace_reserved_type_info( type_info, spot_index );
             Ok( () )
         },
         ( None, Some(_) ) => gm_error!( "Couldn't generate a TypeInfo from this StructDecl (missing name).".to_string() ),
@@ -536,16 +572,13 @@ fn from_entity_fielddecl( context: &mut ParseContext, entity: &Entity, parent_ty
                 let type_def = make_field_from_type( &mut field_info, &type_def )?;
                 type_info.name = sanitize_type_name( &type_def );
 
-/*
                 if !context.store.has( &type_info.name ) {
-                    println!("Found dependency {} for type {}", type_info.name, parent_type.unwrap().get_display_name());
                     if let Some( declaration ) = type_def.get_declaration() {
-                        if let Err(e) = from_entity( context, type_def.get_declaration().as_ref().unwrap() ) {
+                        if let Err(e) = from_entity( context, &declaration ) {
                             println!( "Can't resolve dependency: {}", e );
                         }
                     }
                 }
-*/
             }
 
             let type_info = type_info;
@@ -610,8 +643,23 @@ fn from_entity_funcdecl( context: &mut ParseContext, entity: &Entity ) -> Result
             }
             Ok( type_info )
         }
-        _ => Err( GMError::info( "Missing name or type for func decl.".to_string() ) )
+        _ => gm_info!( "Missing name or type for func decl.".to_string() )
     }
+}
+
+fn get_full_name( entity: &Entity ) -> String {
+    let mut entity = entity.clone();
+    let mut name = String::new();
+    while entity.get_semantic_parent().is_some() {
+        if name.len() == 0 {
+            name = entity.get_name().unwrap().clone();
+        } else {
+            name = format!( "{}::{}", entity.get_name().unwrap(), name );
+        }
+        entity = entity.get_semantic_parent().unwrap().clone();
+    }
+
+    name
 }
 
 fn from_entity_classtemplate( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
@@ -619,41 +667,41 @@ fn from_entity_classtemplate( context: &mut ParseContext, entity: &Entity ) -> R
         return Err( GMError::info( "Not definition.".to_string() ) );
     }
 
-    let name = entity.get_name().unwrap();
-    let type_info = TypeInfo::new( name ).make_template();
-/* @TODO: if we want more informations about the templates...
-    for child in entity.get_children() {
-        use EntityKind::*;
-        match child.get_kind() {
-            TemplateTypeParameter => {
-                println!( "{:?}", child.get_type() );
-             },
-            NonTypeTemplateParameter => {
-                println!( "{:?}", child.get_type() );
-            },
-            kind => {
-                println!("Unhandled template child: {:?}", kind);
-            }
-        };
-    }
-*/
+    
+    let name = get_full_name( entity );
+    // println!("{:?}", entity);
+    let mut type_info = TypeInfo::new( name ).make_template();
+    type_info.source_file = get_source_file( entity );
+
+    let type_info = type_info;
+
     context.store_type_info( type_info );
     Ok( () )
 }
 
 fn from_entity_typedefdecl( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
-    let underlying_type = entity.get_type().unwrap().get_canonical_type().get_display_name();
-    let type_name = entity.get_name().unwrap();
+    let type_def = entity.get_type().unwrap();
+    let underlying_type = type_def.get_canonical_type();
+    let underlying_type_name = sanitize_type_name( &underlying_type );
+    let type_name = sanitize_type_name( &type_def );
 
-    let built_in_types = get_built_in_types();
-    for built_in in built_in_types {
-        if built_in.name == underlying_type {
-            context.store_type_info(TypeInfo::new( type_name ).make_typedef( underlying_type ));
-            return Ok( () );
+    if !context.store.has( &underlying_type_name ) {
+        if let Some( declaration ) = underlying_type.get_declaration() {
+            if let Some( definition ) = declaration.get_definition() {
+                if let Err(e) = from_entity( context, &definition ) {
+                    println!( "Can't resolve dependency: {}", e );
+                }
+            }
         }
     }
 
-    gm_info!( "Found typedef that's not a basic type {} -> {}.", underlying_type, type_name )
+    let mut type_info = TypeInfo::new( type_name ).make_typedef( underlying_type_name );
+    type_info.source_file = get_source_file( entity );
+    context.store_type_info(type_info);
+
+    return Ok( () );
+
+    // gm_info!( "Found typedef that's not a basic type {} -> {}.", underlying_type, type_name )
 }
 
 fn from_entity( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
@@ -664,6 +712,7 @@ fn from_entity( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMEr
         EntityKind::FunctionDecl  => from_entity_freefunction( context, entity ),
         EntityKind::ClassTemplate => from_entity_classtemplate( context, entity ),
         EntityKind::TypedefDecl   => from_entity_typedefdecl( context, entity ),
+        EntityKind::TypeAliasDecl => from_entity_typedefdecl(context, entity),
         kind => gm_info!( "Unhandled entity kind: {:?}", kind),
     }
 }
@@ -680,6 +729,24 @@ fn write_header( type_info_store: &TypeInfoStore, options: &Options ) -> Result<
     writeln!( file, "#pragma once" )?;
     writeln!( file, "#include \"types.h\"")?;
     writeln!( file )?;
+
+    // system includes
+    {
+        let mut includes: HashSet<&str> = HashSet::new();
+
+        for type_info in type_info_store.data.iter() {
+            if let Some( ref source_file ) = type_info.source_file {
+                if source_file.is_system_file {
+                    includes.insert( &source_file.file_path );
+                }
+            }
+        }
+
+        for include in includes.iter() {
+            writeln!( file, "#include <{}>", include )?;
+        }
+        writeln!( file )?;
+    }
 
     writeln!( file, "{};", get_register_types_header() )?;
     writeln!( file )?;
@@ -815,11 +882,7 @@ fn sanitize_type_var( type_name: &String ) -> String {
 
 fn get_type_id( type_info: &TypeInfo ) -> String {
     let type_name = &type_info.name;
-    if type_info._scalar.is_some() {
-        format!( "s{}", type_name.replace("::", "_").replace( " ", "_" ) )
-    } else {
-        format!( "{}", type_name.replace("::", "_").replace( " ", "_" ) )
-    }
+    format!( "{}_id", type_name.replace("::", "_").replace( " ", "_" ) )
 }
 
 fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo ) -> std::io::Result<()> {
@@ -828,11 +891,11 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo )
     
     use TypeInfoType::*;
     match get_type_info_type( &type_info ) {
-        Scalar(_)           => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Scalar );",   type=type_var ),
-        Typedef( typedef )  => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, {source}.type );",          type=type_var, source=get_type_var( &typedef.source_type ) ),
-        Enum(_)             => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Enum );",     type=type_var ),
-        Template(_)         => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Template );", type=type_var ),
-        Struct(_)           => gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Struct );",   type=type_var ),
+        Scalar(_)           => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Scalar );",   type=type_var ),
+        Typedef( typedef )  => gm_writeln!( context, "auto& {type} = alloc_type_short( {source}.type );",          type=type_var, source=get_type_var( &typedef.source_type ) ),
+        Enum(_)             => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Enum );",     type=type_var ),
+        Template(_)         => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Template );", type=type_var ),
+        Struct(_)           => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Struct );",   type=type_var ),
         Func(_)             => Ok(()), // @TODO: Bring this back when we figure out how to handle overload properly: gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var ),
         Field(_)            => Ok(()),
         None                => Ok(()),
@@ -1059,7 +1122,9 @@ fn write_implementation( type_info_store: &TypeInfoStore, template_instances: &H
 
         for type_info in type_info_store.data.iter() {
             if let Some( ref source_file ) = type_info.source_file {
-                includes.insert( source_file );
+                if !source_file.is_system_file {
+                    includes.insert( &source_file.file_path );
+                }
             }
         }
 
@@ -1089,6 +1154,13 @@ fn write_implementation( type_info_store: &TypeInfoStore, template_instances: &H
         strcpy( result, str );
         return result;
     }};")?;
+
+    gm_writeln!( context, "auto alloc_type_short = [&]( TypeInfoType type ) -> TypeInfo& {{
+        auto& type_info = alloc_type( alloc_type_param );
+        type_set_type( type_info, type );
+        return type_info;
+    }};")?;
+
     gm_writeln!( context )?;
 
     for type_info in type_info_store.data.iter() {
@@ -1146,8 +1218,6 @@ fn get_built_in_types() -> Vec<TypeInfo> {
         TypeInfo::new("signed char").make_scalar(CHAR),
         TypeInfo::new("float").make_scalar(FLOAT),
         TypeInfo::new("double").make_scalar(FLOAT),
-        TypeInfo::new("std::vector").make_template(),
-        TypeInfo::new("std::string").make_struct( &None, TypeInfoStructKind::Class ).make_builtin(),
     ];
 
     return built_ins;
@@ -1261,7 +1331,7 @@ fn parse_translation_unit( tu: &TranslationUnit, options: &Options ) -> ParseCon
             },
             Err( error ) => {
                 if options.verbose {
-                    println!( "({}): {}", get_source_file( &entity ).unwrap_or_else(|| String::from("NoFile")), error ); 
+                    println!( "({}): {}", get_source_file( &entity ).unwrap_or_else(|| TypeInfoSource{ file_path: String::from("NoFile"), is_system_file: false }).file_path, error ); 
                 }
             },
         };
@@ -1353,17 +1423,17 @@ fn main() {
     }
     let template_instances = template_instances;
 
-    for (k, v) in &template_instances {
-        println!( "{} instances: ", k );
-        for inst in v.iter() {
-            for f in inst.iter() {
-                print!( "{} ", f.name );
-            }
-            println!();
-        }
-    }
-
     if !options.no_report {
+        for (k, v) in &template_instances {
+            println!( "{} instances: ", k );
+            for inst in v.iter() {
+                for f in inst.iter() {
+                    print!( "    {}", f.name );
+                }
+                println!();
+            }
+        }
+
         show_report_types( &parse_context.store.data );
     }
 
