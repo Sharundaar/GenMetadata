@@ -129,6 +129,47 @@ struct ExportContext {
     type_var_override: Vec<String>,
 }
 
+#[derive(Default)]
+struct TypeInfoStore {
+    data: Vec<TypeInfo>,
+    map: HashMap<String, usize>
+}
+
+impl TypeInfoStore {
+    fn push( &mut self, ti: TypeInfo ) {
+        self.map.insert( ti.name.clone(), self.data.len() );
+        self.data.push( ti );
+    }
+
+    fn has( &self, name: &String ) -> bool {
+        self.map.contains_key( name )
+    }
+
+    fn get( &self, name: &String ) -> Option<&TypeInfo> {
+        if self.has( name ) {
+            self.data.get( self.map[name] )
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Default)]
+struct ParseContext {
+    store: TypeInfoStore
+}
+
+impl ParseContext {
+    fn store_type_info( &mut self, ti: TypeInfo ) -> &TypeInfo {
+        if !self.store.has( &ti.name ) {
+            self.store.push( ti );
+            self.store.data.last().unwrap()
+        } else {
+            self.store.get( &ti.name ).unwrap()
+        }
+    }
+}
+
 macro_rules! gm_writeln {
     ($context:ident) => {$context.newline()};
     ($context:ident, $fmt:expr) => {$context.writeln( format!( $fmt ) )};
@@ -340,15 +381,15 @@ impl TypeInfo {
     }
 }
 
-fn has_object_parent( struct_info: &TypeInfoStruct, type_info_map: &HashMap<String, &TypeInfo> ) -> bool {
+fn has_object_parent( struct_info: &TypeInfoStruct, type_info_store: &TypeInfoStore ) -> bool {
     if let Some( ref parent ) = struct_info.parent {
         if parent == "Object" {
             return true;
         }
 
-        if let Some( ref parent_type ) = type_info_map.get( parent ) {
+        if let Some( ref parent_type ) = type_info_store.get( parent ) {
             if let Some( ref parent_struct ) = parent_type._struct {
-                return has_object_parent( &parent_struct, &type_info_map );
+                return has_object_parent( &parent_struct, type_info_store );
             }
         }
     }
@@ -378,7 +419,7 @@ fn get_struct_kind_from_entity_kind( ent_kind: EntityKind ) -> TypeInfoStructKin
     }
 }
 
-fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
+fn from_entity_structdecl( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
     if !entity.is_definition() { return gm_info!( "not definition" ); }
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( _ ) ) => {
@@ -396,13 +437,13 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
                             }
                         },
                         FieldDecl => {
-                            match from_entity( &child ) {
+                            match from_entity_fielddecl( context, &child, entity.get_type().as_ref() ) {
                                 Ok( type_field ) => { type_info_struct.fields.push( type_field ); },
                                 Err( err ) => { println!( "{}", err )},
                             }
                         },
                         Method => {
-                            match from_entity( &child ) {
+                            match from_entity_funcdecl( context, &child ) {
                                 Ok( type_function ) => { type_info_struct.functions.push( type_function ); },
                                 Err( _ ) => {},
                             }
@@ -419,7 +460,8 @@ fn from_entity_structdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
             }
 
             let type_info = type_info;
-            Ok( type_info )
+            context.store_type_info( type_info );
+            Ok( () )
         },
         ( None, Some(_) ) => gm_error!( "Couldn't generate a TypeInfo from this StructDecl (missing name).".to_string() ),
         ( Some(_), None ) => gm_error!( "Couldn't generate a TypeInfo from this StructDecl (missing type).".to_string() ),
@@ -475,7 +517,7 @@ fn make_field_from_type<'a>( field_info: &mut TypeInfoField, type_def: &'a Type 
     Ok( type_def )
 }
 
-fn from_entity_fielddecl( entity: &Entity, parent_type: Option<&Type> ) -> Result<TypeInfo, GMError> {
+fn from_entity_fielddecl( context: &mut ParseContext, entity: &Entity, parent_type: Option<&Type> ) -> Result<TypeInfo, GMError> {
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
             // type name filled in later
@@ -493,6 +535,17 @@ fn from_entity_fielddecl( entity: &Entity, parent_type: Option<&Type> ) -> Resul
 
                 let type_def = make_field_from_type( &mut field_info, &type_def )?;
                 type_info.name = sanitize_type_name( &type_def );
+
+/*
+                if !context.store.has( &type_info.name ) {
+                    println!("Found dependency {} for type {}", type_info.name, parent_type.unwrap().get_display_name());
+                    if let Some( declaration ) = type_def.get_declaration() {
+                        if let Err(e) = from_entity( context, type_def.get_declaration().as_ref().unwrap() ) {
+                            println!( "Can't resolve dependency: {}", e );
+                        }
+                    }
+                }
+*/
             }
 
             let type_info = type_info;
@@ -502,7 +555,7 @@ fn from_entity_fielddecl( entity: &Entity, parent_type: Option<&Type> ) -> Resul
     }
 }
 
-fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
+fn from_entity_enumdecl( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
     if !entity.is_definition() { return gm_info!( "not definition" ); }
     match ( entity.is_scoped(), entity.get_type() ) {
         ( true, Some( type_def ) ) => {
@@ -517,14 +570,21 @@ fn from_entity_enumdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
             }
 
             let type_info = type_info;
-            Ok( type_info )
+            context.store_type_info(type_info);
+            Ok(())
         },
         ( false, Some( type_def ) ) => gm_warning!( "Enum {} is unscoped, can't generate TypeInfo for unscoped enums.", type_def.get_display_name() ),
         _ => gm_error!( "Couldn't generate TypeInfo from this EnumDecl." ),
     }
 }
 
-fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
+fn from_entity_freefunction( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
+    let func_info = from_entity_funcdecl( context, entity )?;
+    context.store_type_info(func_info);
+    Ok(())
+}
+
+fn from_entity_funcdecl( context: &mut ParseContext, entity: &Entity ) -> Result<TypeInfo, GMError> {
     if let Some( _ ) = entity.get_template() { return gm_info!( "we don't handle template func." ); }
 
     match ( entity.get_name(), entity.get_type() ) {
@@ -542,9 +602,9 @@ fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
             {
                 let mut type_func = type_info._func.as_mut().unwrap();
                 for child in entity.get_children().iter().filter( |x| x.get_kind() == EntityKind::ParmDecl ) {
-                    match from_entity( child ) {
+                    match from_entity_fielddecl( context, child, None ) {
                         Ok( param_type ) => type_func.parameters.push( param_type ),
-                        Err( _ ) => {}
+                        Err( e ) => println!("Something happend while parsing template param: {}", e)
                     };
                 }
             }
@@ -554,7 +614,7 @@ fn from_entity_funcdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
     }
 }
 
-fn from_entity_classtemplate( entity: &Entity ) -> Result<TypeInfo, GMError> {
+fn from_entity_classtemplate( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
     if !entity.is_definition() {
         return Err( GMError::info( "Not definition.".to_string() ) );
     }
@@ -577,39 +637,38 @@ fn from_entity_classtemplate( entity: &Entity ) -> Result<TypeInfo, GMError> {
         };
     }
 */
-    Ok( type_info )
+    context.store_type_info( type_info );
+    Ok( () )
 }
 
-fn from_entity_typedefdecl( entity: &Entity ) -> Result<TypeInfo, GMError> {
+fn from_entity_typedefdecl( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
     let underlying_type = entity.get_type().unwrap().get_canonical_type().get_display_name();
     let type_name = entity.get_name().unwrap();
 
     let built_in_types = get_built_in_types();
     for built_in in built_in_types {
         if built_in.name == underlying_type {
-            return Ok( TypeInfo::new( type_name ).make_typedef( underlying_type ) );
+            context.store_type_info(TypeInfo::new( type_name ).make_typedef( underlying_type ));
+            return Ok( () );
         }
     }
 
-    Err( GMError::info( format!( "Found typedef that's not a basic type {} -> {}.", underlying_type, type_name ) ) )
+    gm_info!( "Found typedef that's not a basic type {} -> {}.", underlying_type, type_name )
 }
 
-fn from_entity( entity: &Entity ) -> Result<TypeInfo, GMError> {
+fn from_entity( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
     match entity.get_kind() {
-        EntityKind::StructDecl    => from_entity_structdecl( entity ),
-        EntityKind::ClassDecl     => from_entity_structdecl( entity ),
-        EntityKind::FieldDecl     => from_entity_fielddecl( entity, Some( &entity.get_semantic_parent().unwrap().get_type().unwrap() ) ), // should be ok for a field decl... haven't found a better way to pass this...
-        EntityKind::EnumDecl      => from_entity_enumdecl( entity ),
-        EntityKind::FunctionDecl  => from_entity_funcdecl( entity ),
-        EntityKind::ParmDecl      => from_entity_fielddecl( entity, None ),
-        EntityKind::Method        => from_entity_funcdecl( entity ),
-        EntityKind::ClassTemplate => from_entity_classtemplate( entity ),
-        EntityKind::TypedefDecl   => from_entity_typedefdecl( entity ),
+        EntityKind::StructDecl    => from_entity_structdecl( context, entity ),
+        EntityKind::ClassDecl     => from_entity_structdecl( context, entity ),
+        EntityKind::EnumDecl      => from_entity_enumdecl( context, entity ),
+        EntityKind::FunctionDecl  => from_entity_freefunction( context, entity ),
+        EntityKind::ClassTemplate => from_entity_classtemplate( context, entity ),
+        EntityKind::TypedefDecl   => from_entity_typedefdecl( context, entity ),
         kind => gm_info!( "Unhandled entity kind: {:?}", kind),
     }
 }
 
-fn write_header( type_info_vec : &Vec<TypeInfo>, type_info_map: &HashMap<String, &TypeInfo>, options: &Options ) -> Result<bool, GMError> {
+fn write_header( type_info_store: &TypeInfoStore, options: &Options ) -> Result<bool, GMError> {
     let mut file = File::create( {
         use std::path::PathBuf;
         let mut pathbuf = PathBuf::new();
@@ -625,14 +684,14 @@ fn write_header( type_info_vec : &Vec<TypeInfo>, type_info_map: &HashMap<String,
     writeln!( file, "{};", get_register_types_header() )?;
     writeln!( file )?;
 
-    for type_info in type_info_vec.iter().filter( |t| t._enum.is_some() ) {
+    for type_info in type_info_store.data.iter().filter( |t| t._enum.is_some() ) {
         let enum_type = type_info._enum.as_ref().unwrap();
         writeln!( file, "enum class {} : {};", type_info.name, enum_type.underlying_type )?;
     }
 
     writeln!( file )?;
 
-    for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() && !t.built_in ) {
+    for type_info in type_info_store.data.iter().filter( |t| t._struct.is_some() && !t.built_in ) {
         match type_info._struct.as_ref().unwrap().kind {
             TypeInfoStructKind::Struct => writeln!( file, "struct {};", type_info.name )?,
             TypeInfoStructKind::Class => writeln!( file, "class {};", type_info.name )?,
@@ -643,7 +702,7 @@ fn write_header( type_info_vec : &Vec<TypeInfo>, type_info_map: &HashMap<String,
 
     writeln!( file, "enum class LocalTypeId : uint32_t")?;
     writeln!( file, "{{")?;
-    for type_info in type_info_vec.iter() {
+    for type_info in type_info_store.data.iter() {
         use TypeInfoType::*;
         match get_type_info_type( &type_info ) {
             Scalar(_)  => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
@@ -664,16 +723,16 @@ fn write_header( type_info_vec : &Vec<TypeInfo>, type_info_map: &HashMap<String,
     writeln!( file, "enum class ObjectTypeId" )?;
     writeln!( file, "{{" )?;
     writeln!( file, "    Object," )?;
-    for type_info in type_info_vec.iter()
+    for type_info in type_info_store.data.iter()
                     .filter( |t| t._struct.is_some() )
-                    .filter( |t| has_object_parent( t._struct.as_ref().unwrap(), &type_info_map ) ) {
+                    .filter( |t| has_object_parent( t._struct.as_ref().unwrap(), type_info_store ) ) {
         writeln!( file, "    {},", type_info.name )?;
     }
     writeln!( file, "}};" )?;
 
     writeln!( file )?;
 
-    for type_info in type_info_vec.iter() {
+    for type_info in type_info_store.data.iter() {
         use TypeInfoType::*;
         match get_type_info_type( &type_info ) {
             Scalar(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (uint32_t)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
@@ -707,10 +766,10 @@ fn build_modifier_string( field: &TypeInfoField ) -> String {
     }
 }
 
-fn write_struct_implementation( type_info_map: &HashMap<String, &TypeInfo>, file: &mut File, type_info: &TypeInfo ) -> Result<bool, GMError> {
+fn write_struct_implementation( type_info_store: &TypeInfoStore, file: &mut File, type_info: &TypeInfo ) -> Result<bool, GMError> {
     let struct_type = type_info._struct.as_ref().unwrap();
     // Write constructors if needed
-    if has_object_parent( struct_type, type_info_map ) {
+    if has_object_parent( struct_type, type_info_store ) {
         let parent = struct_type.parent.as_ref().unwrap();
         writeln!( file, "{struct_name}::{struct_name}() : {parent_name}( type_id<{struct_name}>() ) {{}}", struct_name = type_info.name, parent_name = parent )?;
         writeln!( file, "{struct_name}::{struct_name}( TypeId _type_id ) : {parent_name}( _type_id ) {{}}", struct_name = type_info.name, parent_name = parent )?;
@@ -780,7 +839,7 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo )
     }
 }
 
-fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
+fn write_type_implementation( context: &mut ExportContext, type_info_store: &TypeInfoStore, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
     let type_name = &type_info.name;
     let type_var  = match context.type_var_override.last() {
         Option::None => get_field_var( &type_name, &type_info._field ),
@@ -846,7 +905,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                     gm_writeln!( context, "{}[{}].definition = &{};", instances_var_name, inst_index, &type_var )?;
                     for (param_index, param) in instance.iter().enumerate() {
                         context.push_type_var_override( format!( "{}[{}].params[{}].info", instances_var_name, inst_index, param_index ) );
-                        write_type_implementation( context, type_info_map, template_instances, &param, indent_count + 3 )?;
+                        write_type_implementation( context, type_info_store, template_instances, &param, indent_count + 3 )?;
                         context.pop_type_var_override();
                     }
                     if inst_index < instances.len()-1 { gm_writeln!( context )?; }
@@ -870,7 +929,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 let mut idx = 0;
                 for field in &struct_type.fields {
                     context.push_type_var_override( format!("{}[{}]", instances_var_name, idx) );
-                    write_type_implementation( context, type_info_map, template_instances, field, indent_count+2 )?;
+                    write_type_implementation( context, type_info_store, template_instances, field, indent_count+2 )?;
                     context.pop_type_var_override();
                     idx = idx + 1;
                 }
@@ -885,7 +944,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 for (idx, func) in struct_type.functions.iter().enumerate() {
                     gm_begin_scope!( context )?;
                     context.push_type_var_override( format!("{}[{}]", functions_var_name, idx) );
-                    write_type_implementation( context, type_info_map, template_instances, func, indent_count+2 )?;
+                    write_type_implementation( context, type_info_store, template_instances, func, indent_count+2 )?;
                     context.pop_type_var_override();
                     gm_end_scope!( context )?;
                 }
@@ -911,7 +970,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 context.push_type_var_override( return_type_var.clone() );
                 gm_writeln!( context, "FieldInfo {};", return_type_var )?;
                 let return_type = &return_type;
-                write_type_implementation( context, type_info_map, template_instances, return_type, indent_count+1 )?;
+                write_type_implementation( context, type_info_store, template_instances, return_type, indent_count+1 )?;
                 gm_writeln!( context, "func_set_return_type( {}, {} );", type_var, return_type_var )?;
                 context.pop_type_var_override();
             }
@@ -923,7 +982,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
                 for param in &func_type.parameters {
                     gm_begin_scope!( context )?;
                     context.push_type_var_override( format!("{}[{}]", func_parameters_type_var, idx ) );
-                    write_type_implementation( context, type_info_map, template_instances, param, indent_count+3 )?;
+                    write_type_implementation( context, type_info_store, template_instances, param, indent_count+3 )?;
                     context.pop_type_var_override();
                     gm_end_scope!( context )?;
                     idx = idx + 1;
@@ -955,7 +1014,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
             }
             gm_writeln!( context, "field_set_modifiers( {}, (FieldInfoModifier) ({}) );", type_var, build_modifier_string( &field_type ) )?;
 
-            if let Some( registered_type ) = type_info_map.get( &type_info.name ) {
+            if let Some( registered_type ) = type_info_store.get( &type_info.name ) {
                 if registered_type._struct.is_some() {
                     gm_writeln!( context, "field_set_type( {}, &{} );", type_var, get_type_var( &registered_type.name ) )?;
                 } else if let Some( ref template_args ) = field_type.templates {
@@ -984,7 +1043,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_map: &HashM
     Ok(true)
 }
 
-fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<String, &TypeInfo>, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, options: &Options ) -> Result<bool, GMError> {
+fn write_implementation( type_info_store: &TypeInfoStore, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, options: &Options ) -> Result<bool, GMError> {
     let file = File::create( {
         use std::path::PathBuf;
         let mut pathbuf = PathBuf::new();
@@ -998,7 +1057,7 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<
     {
         let mut includes: HashSet<&str> = HashSet::new();
 
-        for type_info in type_info_vec.iter() {
+        for type_info in type_info_store.data.iter() {
             if let Some( ref source_file ) = type_info.source_file {
                 includes.insert( source_file );
             }
@@ -1032,21 +1091,21 @@ fn write_implementation( type_info_vec: &Vec<TypeInfo>, type_info_map: &HashMap<
     }};")?;
     gm_writeln!( context )?;
 
-    for type_info in type_info_vec.iter() {
+    for type_info in type_info_store.data.iter() {
         write_type_instantiation( &mut context, type_info )?;
     }
 
     gm_writeln!( context )?;
 
-    for type_info in type_info_vec.iter() {
-        write_type_implementation( &mut context, type_info_map, template_instances, type_info, 1 )?;
+    for type_info in type_info_store.data.iter() {
+        write_type_implementation( &mut context, type_info_store, template_instances, type_info, 1 )?;
     }
 
     gm_end_scope!( context )?;
     gm_writeln!( context )?;
 
-    for type_info in type_info_vec.iter().filter( |t| t._struct.is_some() && has_object_parent( t._struct.as_ref().unwrap(), &type_info_map ) ) {
-        write_struct_implementation( &type_info_map, &mut context.file, type_info )?;
+    for type_info in type_info_store.data.iter().filter( |t| t._struct.is_some() && has_object_parent( t._struct.as_ref().unwrap(), type_info_store ) ) {
+        write_struct_implementation( type_info_store, &mut context.file, type_info )?;
     }
 
     Ok( true )
@@ -1190,16 +1249,15 @@ fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
     }
 }
 
-fn parse_translation_unit( tu: &TranslationUnit, options: &Options ) -> Vec<TypeInfo> {
-    let mut type_info_vec = Vec::new();
+fn parse_translation_unit( tu: &TranslationUnit, options: &Options ) -> ParseContext {
+    let mut context = ParseContext::default();
     for built_in in get_built_in_types() {
-        type_info_vec.push( built_in.clone() );
+        context.store_type_info( built_in.clone() );
     }
 
     for entity in tu.get_entity().get_children().iter().filter( |e| !e.is_in_system_header() ) {
-        match from_entity( &entity ) {
-            Ok( type_info ) =>  {
-                type_info_vec.push( type_info );
+        match from_entity( &mut context, &entity ) {
+            Ok( _ ) =>  {
             },
             Err( error ) => {
                 if options.verbose {
@@ -1209,7 +1267,7 @@ fn parse_translation_unit( tu: &TranslationUnit, options: &Options ) -> Vec<Type
         };
     }
 
-    type_info_vec
+    context
 }
 
 fn main() {
@@ -1260,11 +1318,11 @@ fn main() {
     let clang = Clang::new().unwrap();
     let index = Index::new(&clang, false, true);
 
-    let type_info_vec = match index.parser( &"main.h" ).arguments( &arguments ).parse() {
+    let parse_context = match index.parser( &"main.h" ).arguments( &arguments ).parse() {
         Ok( tu )   => parse_translation_unit( &tu, &options ),
         Err( err ) => {
             println!( "ERROR: {}", err );
-            Vec::new()
+            ParseContext::default()
         }
     };
  
@@ -1285,7 +1343,7 @@ fn main() {
     }
     
     let mut template_instances: HashMap<String, Vec<Vec<TypeInfo>>> = HashMap::new();
-    for type_info in &type_info_vec {
+    for type_info in &parse_context.store.data {
         if type_info._struct.is_some() {
             let struct_info = type_info._struct.as_ref().unwrap();
             for field in &struct_info.fields {
@@ -1305,20 +1363,17 @@ fn main() {
         }
     }
 
-    use std::iter::FromIterator;
-    let type_info_map: HashMap<String, &TypeInfo> = HashMap::from_iter(type_info_vec.iter().map(|x| (x.name.clone(), x)));
-
     if !options.no_report {
-        show_report_types( &type_info_vec );
+        show_report_types( &parse_context.store.data );
     }
 
     if !options.no_output {
-        match write_header( &type_info_vec, &type_info_map, &options ) {
+        match write_header( &parse_context.store, &options ) {
             Ok(_) => {},
             Err( err ) => { println!( "{}", err ); },
         }
 
-        match write_implementation( &type_info_vec, &type_info_map, &template_instances, &options ) {
+        match write_implementation( &parse_context.store, &template_instances, &options ) {
             Ok(_) => {},
             Err( err ) => { println!( "{}", err ); },
         }
