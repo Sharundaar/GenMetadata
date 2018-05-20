@@ -1078,9 +1078,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
             gm_writeln!( context, "field_set_modifiers( {}, (FieldInfoModifier) ({}) );", type_var, build_modifier_string( &field_type ) )?;
 
             if let Some( registered_type ) = type_info_store.get( &type_info.name ) {
-                if registered_type._struct.is_some() {
-                    gm_writeln!( context, "field_set_type( {}, &{} );", type_var, get_type_var( &registered_type.name ) )?;
-                } else if let Some( ref template_args ) = field_type.templates {
+                if let Some( ref template_args ) = field_type.templates {
                     let template_src_type_var = get_type_var( &type_info.name );
                     let template_src_instances = &template_instances[&type_info.name];
                     // find instance index
@@ -1096,6 +1094,8 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
                     gm_writeln!( context, 
                       "field_set_template_instance( {}, {}, {} );",
                       type_var, template_src_type_var, inst_index )?;
+                } else {
+                    gm_writeln!( context, "field_set_type( {}, &{} );", type_var, get_type_var( &registered_type.name ) )?;
                 }
             }
         }
