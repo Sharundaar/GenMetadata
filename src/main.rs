@@ -99,6 +99,7 @@ struct TypeInfoScalar {
 struct TypeInfoEnum {
     underlying_type: String,
     enum_values: HashMap<String, (i64, u64)>,
+    is_scoped: bool,
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -582,13 +583,14 @@ fn from_entity_fielddecl( context: &mut ParseContext, entity: &Entity, parent_ty
 
 fn from_entity_enumdecl( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
     if !entity.is_definition() { return gm_info!( "not definition" ); }
-    match ( entity.is_scoped(), entity.get_type() ) {
-        ( true, Some( type_def ) ) => {
+    match entity.get_type() {
+        Some( type_def ) => {
             let mut type_info = TypeInfo::new( type_def.get_display_name() ).make_enum( &entity.get_enum_underlying_type().unwrap().get_display_name() );
             type_info.source_file = get_source_file( entity );
 
             {
                 let mut type_enum = type_info._enum.as_mut().unwrap();
+                type_enum.is_scoped = entity.is_scoped();
                 for child in entity.get_children() {
                     type_enum.enum_values.insert( child.get_name().unwrap().clone(), child.get_enum_constant_value().unwrap() );
                 }
@@ -598,7 +600,6 @@ fn from_entity_enumdecl( context: &mut ParseContext, entity: &Entity ) -> Result
             context.store_type_info(type_info);
             Ok(())
         },
-        ( false, Some( type_def ) ) => gm_warning!( "Enum {} is unscoped, can't generate TypeInfo for unscoped enums.", type_def.get_display_name() ),
         _ => gm_error!( "Couldn't generate TypeInfo from this EnumDecl." ),
     }
 }
@@ -761,7 +762,9 @@ fn write_header( type_info_store: &TypeInfoStore, options: &Options ) -> Result<
 
     for type_info in type_info_store.data.iter().filter( |t| t._enum.is_some() ) {
         let enum_type = type_info._enum.as_ref().unwrap();
-        writeln!( file, "enum class {} : {};", type_info.name, enum_type.underlying_type )?;
+        if enum_type.is_scoped {
+            writeln!( file, "enum class {} : {};", type_info.name, enum_type.underlying_type )?;
+        }
     }
 
     writeln!( file )?;
@@ -813,7 +816,14 @@ fn write_header( type_info_store: &TypeInfoStore, options: &Options ) -> Result<
             Scalar(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (uint32_t)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
             Typedef(_) => { continue; }
             Struct(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (uint32_t)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
-            Enum(_)    => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (uint32_t)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
+            Enum( enum_info )    => {
+                if enum_info.is_scoped {
+                    writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (uint32_t)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; 
+                }
+                else {
+                    continue;
+                }
+            }
             Func(_)    => { continue; }
             Field(_)   => { continue; }
             Template(_) => { continue; }
@@ -946,10 +956,13 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
         }
 
 // Impl Enum
-        Enum( _enum_type ) => {
-            let enum_type = type_info._enum.as_ref().unwrap();
+        Enum( enum_type ) => {
             gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
-            gm_writeln!( context, "type_set_id( {}, type_id<{}>() );", type_var, type_info.name )?;
+            if enum_type.is_scoped {
+                gm_writeln!( context, "type_set_id( {}, type_id<{}>() );", type_var, type_info.name )?;
+            } else {
+                gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
+            }
             gm_writeln!( context, "enum_set_underlying_type( {}.enum_info, &type_{} );", type_var, enum_type.underlying_type.replace("int", "i32").replace("ushort", "u16") )?;
 
             if !enum_type.enum_values.is_empty() {
