@@ -917,7 +917,7 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo )
             }
         },
         Enum(_)             => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Enum );",     type=type_var ),
-        Template(_)         => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Template );", type=type_var ),
+        Template(_)         => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::TemplateDef );", type=type_var ),
         Struct(_)           => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Struct );",   type=type_var ),
         Func(_)             => Ok(()), // @TODO: Bring this back when we figure out how to handle overload properly: gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var ),
         Field(_)            => Ok(()),
@@ -982,15 +982,20 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
             gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
             if let Some(instances) = template_instances.get( type_name ) {
                 let instances_var_name = format!( "{}_instances", type_var );
-                gm_writeln!( context, "auto {} = (TemplateInstance*)alloc_data( alloc_data_param, sizeof(TemplateInstance) * {} );", instances_var_name, instances.len() )?;
+                gm_writeln!( context, "auto {} = (TypeInfo*)alloc_data( alloc_data_param, sizeof(TypeInfo) * {} );", instances_var_name, instances.len() )?;
                 gm_writeln!( context, "template_set_instances( {}, {}, {} );", type_var, instances_var_name, instances.len() )?;
                 for (inst_index, instance) in instances.iter().enumerate() {
+                    let instance_var_name = format!( "{}[{}]", instances_var_name, inst_index );
+                    gm_writeln!( context, "type_set_type( {}, TypeInfoType::TemplateInst );", instance_var_name )?;
+                    gm_writeln!( context, "type_set_name( {}, {}.name );", instance_var_name, type_var )?;
+                    gm_writeln!( context, "type_set_id( {}, {}.type_id );", instance_var_name, type_var )?;
                     gm_writeln!( context, 
-                      "template_instance_set_params( &{}[{}], (TemplateParam*)alloc_data( alloc_data_param, sizeof(TemplateParam) * {} ), {} );", 
-                      instances_var_name, inst_index, instance.len(), instance.len() )?;
-                    gm_writeln!( context, "{}[{}].definition = &{};", instances_var_name, inst_index, &type_var )?;
+                      "template_instance_set_params( &{}.template_inst_info, (TemplateParam*)alloc_data( alloc_data_param, sizeof(TemplateParam) * {} ), {} );", 
+                      instance_var_name, instance.len(), instance.len() )?;
+                    gm_writeln!( context, "{}.template_inst_info.definition = &{};", instance_var_name, &type_var )?;
+                    gm_writeln!( context, "{}.template_inst_info.definition = &{};", instance_var_name, &type_var )?;
                     for (param_index, param) in instance.iter().enumerate() {
-                        context.push_type_var_override( format!( "{}[{}].params[{}].info", instances_var_name, inst_index, param_index ) );
+                        context.push_type_var_override( format!( "{}.template_inst_info.params[{}].info", instance_var_name, param_index ) );
                         write_type_implementation( context, type_info_store, template_instances, &param, indent_count + 3 )?;
                         context.pop_type_var_override();
                     }
@@ -1123,7 +1128,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
                     let inst_index = inst_index;
 
                     gm_writeln!( context, 
-                      "field_set_template_instance( {}, {}, {} );",
+                      "field_set_type( {}, &{}.template_def_info.instances[{}] );",
                       type_var, template_src_type_var, inst_index )?;
                 } else {
                     gm_writeln!( context, "field_set_type( {}, &{} );", type_var, get_type_var( &registered_type.name ) )?;

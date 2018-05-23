@@ -61,27 +61,6 @@ int main( int, char** )
                     {
                         cout << "\t" << member.offset << ": " << member.type->name << " " << member.name << endl;
                     }
-                    else if( member.template_instance )
-                    {
-                        cout << "\t" << member.offset << ": " << member.template_instance->definition->name << "( ";
-                        for(int i=0; i < member.template_instance->param_count; ++i)
-                        {
-                            auto& param = member.template_instance->params[i];
-                            if( param.info.type )
-                            {
-                                if( i>0 )
-                                    cout << ", ";
-                                if( param.info.modifier & FieldInfoModifier::CONSTANT )
-                                    cout << "const ";
-                                cout << param.info.type->name;
-                                if( param.info.modifier & FieldInfoModifier::POINTER )
-                                    cout << "*";
-                                if( param.info.modifier & FieldInfoModifier::REFERENCE )
-                                    cout << "&";
-                            }
-                        }
-                        cout << " )" << endl;
-                    }
                     else
                     {
                         cout << "\t" << member.offset << ": (unknown) " << member.name << endl;
@@ -103,12 +82,16 @@ int main( int, char** )
             cout << "Function: " << type.name << endl;
             break;
         }
-        case TypeInfoType::Template: {
+        case TypeInfoType::TemplateDef: {
             cout << "Template: " << type.name << endl;
             break;
         }
         case TypeInfoType::Enum: {
             cout << "Enum: " << type.name << endl;
+            break;
+        }
+        case TypeInfoType::Typedef: {
+            cout << "Typedef: " << type.name << endl;
             break;
         }
         }
