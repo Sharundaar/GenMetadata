@@ -50,7 +50,8 @@ struct TypeInfoTemplate {
 
 #[derive(Clone, Default, PartialEq, Eq)]
 struct TypeInfoTypedef {
-    source_type: String
+    source_type: String,
+    field: Option<Box<TypeInfo>>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -403,7 +404,7 @@ impl TypeInfo {
     }
 
     fn make_typedef( mut self, source_type: String ) -> TypeInfo {
-        self._typedef = Some( TypeInfoTypedef{ source_type: source_type } );
+        self._typedef = Some( TypeInfoTypedef{ source_type: source_type, ..Default::default() } );
         self
     }
 }
@@ -685,20 +686,36 @@ fn from_entity_typedefdecl( context: &mut ParseContext, entity: &Entity ) -> Res
     let underlying_type_name = sanitize_type_name( &underlying_type );
     let type_name = sanitize_type_name( &type_def );
 
-    if !context.store.has( &underlying_type_name ) {
-        if let Some( declaration ) = underlying_type.get_declaration() {
-            if let Some( definition ) = declaration.get_definition() {
-                if let Err(e) = from_entity( context, &definition ) {
-                    println!( "Can't resolve dependency: {}", e );
+    let mut type_info = TypeInfo::new( type_name ).make_typedef( underlying_type_name );
+    type_info.source_file = get_source_file( entity );
+
+    if let Some( declaration ) = underlying_type.get_declaration() {
+        if let Some( definition ) = declaration.get_definition() {
+            let type_info_field = from_entity_fielddecl( context, &definition, None )?;
+            if type_info_field._field != Some( TypeInfoField::default() ) {
+                type_info._typedef.as_mut().unwrap().field = Some( Box::new( type_info_field ) );
+            }
+        }
+    } else {
+        let mut type_info_field = TypeInfo::new( "" ).make_field( "", 0 );
+        {
+            let mut field_info = type_info_field._field.as_mut().unwrap();
+            let type_def = make_field_from_type( &mut field_info, &underlying_type )?;
+            type_info_field.name = sanitize_type_name( &underlying_type );
+            if !context.store.has( &type_info_field.name ) {
+                if let Some( declaration ) = type_def.get_declaration() {
+                    if let Err(e) = from_entity( context, &declaration ) {
+                        println!( "Can't resolve dependency: {}", e );
+                    }
                 }
             }
         }
+        if type_info_field._field != Some( TypeInfoField::default() ) {
+            type_info._typedef.as_mut().unwrap().field = Some( Box::new( type_info_field ) );
+        }
     }
 
-    let mut type_info = TypeInfo::new( type_name ).make_typedef( underlying_type_name );
-    type_info.source_file = get_source_file( entity );
     context.store_type_info(type_info);
-
     return Ok( () );
 
     // gm_info!( "Found typedef that's not a basic type {} -> {}.", underlying_type, type_name )
@@ -892,7 +909,13 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo )
     use TypeInfoType::*;
     match get_type_info_type( &type_info ) {
         Scalar(_)           => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Scalar );",   type=type_var ),
-        Typedef( typedef )  => gm_writeln!( context, "auto& {type} = alloc_type_short( {source}.type );",          type=type_var, source=get_type_var( &typedef.source_type ) ),
+        Typedef( typedef )  => {
+            if let Some( ref field ) = typedef.field {
+                gm_writeln!( context, "auto& {} = alloc_type_short( TypeInfoType::Typedef );", type_var )
+            } else {
+                gm_writeln!( context, "auto& {type} = alloc_type_short( {source}.type );", type=type_var, source=get_type_var( &typedef.source_type ) )
+            }
+        },
         Enum(_)             => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Enum );",     type=type_var ),
         Template(_)         => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Template );", type=type_var ),
         Struct(_)           => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Struct );",   type=type_var ),
@@ -1060,10 +1083,18 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
 // Impl Typedef
         Typedef( typedef_type ) => {
             let source_type_var = get_type_var( &typedef_type.source_type );
-            writeln!( context.file, "{}{} = {};", indent, type_var, source_type_var )?;
-            writeln!( context.file, "{}type_set_name( {}, copy_string( \"{}\" ) );", indent, type_var, type_name )?;
-            writeln!( context.file, "{}type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", indent, type_var, get_type_id( &type_info ) )?;
-            writeln!( context.file )?;
+            if let Some( ref field ) = typedef_type.field {
+                gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
+                gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
+                context.push_type_var_override( format!("{}.typedef_info.info", type_var ) );
+                write_type_implementation( context, type_info_store, template_instances, &*field, indent_count+3 )?;
+                context.pop_type_var_override();
+            } else {
+                gm_writeln!( context, "{} = {};", type_var, source_type_var )?;
+                gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
+                gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
+            }
+            gm_writeln!( context )?;
         }
 
 // Impl Field
@@ -1418,6 +1449,11 @@ fn main() {
             let struct_info = type_info._struct.as_ref().unwrap();
             for field in &struct_info.fields {
                 explore_fields_rec( &mut template_instances, &field );
+            }
+        } else if type_info._typedef.is_some() {
+            let typedef_info = type_info._typedef.as_ref().unwrap();
+            if let Some( ref field ) = typedef_info.field {
+                explore_fields_rec( &mut template_instances, &*field );
             }
         }
     }

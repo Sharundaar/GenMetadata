@@ -132,6 +132,11 @@ private:
     int32_t get_instance_internal( const TemplateParam* params, unsigned int param_count );
 };
 
+struct TypedefInfo
+{
+    FieldInfo info;
+};
+
 enum class TypeInfoType
 {
     Scalar,
@@ -139,6 +144,7 @@ enum class TypeInfoType
     Enum,
     Template,
     Function,
+    Typedef,
 };
 
 struct TypeInfo
@@ -154,6 +160,7 @@ struct TypeInfo
         StructInfo   struct_info;
         FuncInfo     func_info;
         EnumInfo     enum_info;
+        TypedefInfo  typedef_info;
     };
 
     TypeInfo();
@@ -164,12 +171,14 @@ struct TypeInfo
     operator StructInfo&();
     operator FuncInfo&();
     operator EnumInfo&();
+    operator TypedefInfo&();
 
     operator const TemplateInfo&() const;
     operator const ScalarInfo&() const;
     operator const StructInfo&() const;
     operator const FuncInfo&() const;
     operator const EnumInfo&() const;
+    operator const TypedefInfo&() const;
 };
 
 void scalar_set_type( ScalarInfo& type, ScalarInfoType scalar_type );
@@ -201,6 +210,8 @@ void field_set_type( FieldInfo& field, const TypeInfo* type );
 void field_set_template_instance( FieldInfo& field, const TemplateInfo& source, int instance_index );
 void field_set_offset( FieldInfo& field, uint32_t offset );
 void field_set_modifiers( FieldInfo& field, FieldInfoModifier modifiers );
+
+void typedef_set_field( TypedefInfo& type, FieldInfo info );
 
 #endif
 
@@ -311,16 +322,18 @@ TypeInfo& TypeInfo::operator=( const TypeInfo& other )
 }
 
 TypeInfo::operator TemplateInfo&() { return this->template_info; }
-TypeInfo::operator ScalarInfo&() { return this->scalar_info; }
-TypeInfo::operator StructInfo&() { return this->struct_info; }
-TypeInfo::operator FuncInfo&() { return this->func_info; }
-TypeInfo::operator EnumInfo&() { return this->enum_info; }
+TypeInfo::operator ScalarInfo&()   { return this->scalar_info; }
+TypeInfo::operator StructInfo&()   { return this->struct_info; }
+TypeInfo::operator FuncInfo&()     { return this->func_info; }
+TypeInfo::operator EnumInfo&()     { return this->enum_info; }
+TypeInfo::operator TypedefInfo&()  { return this->typedef_info; }
 
 TypeInfo::operator const TemplateInfo&() const { return this->template_info; }
-TypeInfo::operator const ScalarInfo&() const { return this->scalar_info; }
-TypeInfo::operator const StructInfo&() const { return this->struct_info; }
-TypeInfo::operator const FuncInfo&() const { return this->func_info; }
-TypeInfo::operator const EnumInfo&() const { return this->enum_info; }
+TypeInfo::operator const ScalarInfo&()   const { return this->scalar_info; }
+TypeInfo::operator const StructInfo&()   const { return this->struct_info; }
+TypeInfo::operator const FuncInfo&()     const { return this->func_info; }
+TypeInfo::operator const EnumInfo&()     const { return this->enum_info; }
+TypeInfo::operator const TypedefInfo&()  const { return this->typedef_info; }
 
 FieldInfo& FieldInfo::operator=( const FieldInfo& other )
 {
@@ -399,6 +412,11 @@ TemplateInstance* TemplateInfo::get_instance( const TemplateParam* params, uint3
 {
     auto instance_index = get_instance_internal( params, param_count );
     return instance_index == -1 ? nullptr : &instances[ instance_index ];
+}
+
+void typedef_set_field( TypedefInfo& type, FieldInfo info )
+{
+    type.info = info;
 }
 
 #endif
