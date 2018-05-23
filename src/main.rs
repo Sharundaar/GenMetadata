@@ -1187,11 +1187,11 @@ fn write_implementation( type_info_store: &TypeInfoStore, template_instances: &H
     gm_begin_scope!( context )?;
 
     gm_writeln!( context, "auto copy_string = [&]( const char* str ) -> const char* {{
-        uint32_t len = strlen( str );
+        auto len = strlen( str );
         if( len == 0 )
             return nullptr;
-        char* result = (char*)alloc_data( alloc_data_param, len+1 );
-        strcpy( result, str );
+        char* result = (char*)alloc_data( alloc_data_param, (uint32_t)len+1 );
+        strcpy_s( result, len+1, str );
         return result;
     }};")?;
 
