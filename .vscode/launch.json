@@ -5,6 +5,17 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Rust (Debug)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "target/debug/gen-metadata.exe",
+            "args": [ "cpp", "--output", "cpp" ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceRoot}",
+            "environment": [],
+            "externalConsole": true
+        },
+        {
             "name": "Debug",
             "type": "cppvsdbg",
             "request": "launch",
