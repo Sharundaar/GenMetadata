@@ -143,24 +143,16 @@ struct TypeInfoStore {
 }
 
 impl TypeInfoStore {
-    fn reserve_name( &mut self, tin: String ) -> usize {
-        if self.map.contains_key( &tin ) {
-            self.map[&tin]
-        } else {
-            self.data.push( TypeInfo{ name: tin.clone(), ..TypeInfo::default() } );
-            self.map.insert( tin, self.data.len()-1 );
-            self.data.len()-1
+    fn reserve_name( &mut self, tin: String ) {
+        if !self.map.contains_key( &tin ) {
+            self.map.insert( tin, std::usize::MAX );
         }
     }
 
-    fn replace_type_info( &mut self, ti: TypeInfo, index: usize ) {
-        self.data[index] = ti;
-    }
-
     fn push( &mut self, ti: TypeInfo ) {
-        if self.map.contains_key( &ti.name ) {
+        if self.map.contains_key( &ti.name ) && self.map[&ti.name] != std::usize::MAX {
             let index = self.map[&ti.name];
-            self.replace_type_info( ti, index );
+            self.data[index] = ti;
         } else {
             self.map.insert( ti.name.clone(), self.data.len() );
             self.data.push( ti );
@@ -190,11 +182,8 @@ impl ParseContext {
         self.store.push( ti );
         self.store.data.last().unwrap()
     }
-    fn reserve_type_info_name( &mut self, tin: String ) -> usize {
-        self.store.reserve_name(tin)
-    }
-    fn replace_reserved_type_info( &mut self, ti: TypeInfo, index: usize ) {
-        self.store.replace_type_info( ti, index );
+    fn reserve_type_info_name( &mut self, tin: String ) {
+        self.store.reserve_name(tin);
     }
 }
 
@@ -461,7 +450,7 @@ fn from_entity_structdecl( context: &mut ParseContext, entity: &Entity ) -> Resu
         ( Some( _ ), Some( type_def ) ) => {
             let mut type_info = TypeInfo::new( sanitize_type_name(&type_def) ).make_struct( &None, get_struct_kind_from_entity_kind( entity.get_kind() ) );
             type_info.source_file = get_source_file( entity );
-            let spot_index = context.reserve_type_info_name( type_info.name.clone() );
+            context.reserve_type_info_name( type_info.name.clone() );
 
             {
                 use EntityKind::*;
@@ -497,7 +486,7 @@ fn from_entity_structdecl( context: &mut ParseContext, entity: &Entity ) -> Resu
             }
 
             let type_info = type_info;
-            context.replace_reserved_type_info( type_info, spot_index );
+            context.store_type_info( type_info );
             Ok( () )
         },
         ( None, Some(_) ) => gm_error!( "Couldn't generate a TypeInfo from this StructDecl (missing name).".to_string() ),
@@ -541,14 +530,16 @@ fn make_field_from_type<'a>( field_info: &mut TypeInfoField, type_def: &'a Type 
     field_info.is_const = type_def.is_const_qualified();
 
     if let Some( template_args ) = type_def.get_template_argument_types() {
-        let mut tas: Vec<TypeInfo> = vec!();
-        for arg in template_args.iter().filter_map( |a| *a ) {
-            let mut thing = TypeInfo::new( "" ).make_field( "", 0 );
-            let true_type = make_field_from_type( thing._field.as_mut().unwrap(), &arg )?;
-            thing.name = sanitize_type_name( &true_type );
-            tas.push( thing );
+        if type_def.get_typedef_name().is_none() { // @TODO: This will fail if the typedef is a type alias of a partially specialized template
+            let mut tas: Vec<TypeInfo> = vec!();
+            for arg in template_args.iter().filter_map( |a| *a ) {
+                let mut thing = TypeInfo::new( "" ).make_field( "", 0 );
+                let true_type = make_field_from_type( thing._field.as_mut().unwrap(), &arg )?;
+                thing.name = sanitize_type_name( &true_type );
+                tas.push( thing );
+            }
+            field_info.templates = Some( tas );
         }
-        field_info.templates = Some( tas );
     }
 
     Ok( type_def )
