@@ -46,24 +46,25 @@ void init_type_system()
 int main( int, char** )
 {
     init_type_system();
+
     for( const auto** typePtr = &s_all_types[0]; *typePtr != nullptr; ++typePtr )
     {
         const auto& type = **typePtr;
         switch( type.type )
         {
         case TypeInfoType::Struct: {
-                cout << "Struct: " << type.name << endl;
+                cout << type.name << " :: " << type.struct_info.size << endl;
                 const StructInfo& struct_type = type;
                 for( u32 field_index = 0; field_index < struct_type.field_count; ++field_index )
                 {
                     const auto& member = struct_type.fields[field_index];
                     if( member.type )
                     {
-                        cout << "\t" << member.offset << ": " << member.type->name << " " << member.name << endl;
+                        printf("\t[%d]\t %s%c %s\n", member.offset, member.type->name, ((member.modifier & FieldInfoModifier::POINTER) ? '*' : ((member.modifier & FieldInfoModifier::REFERENCE) ? '&' : ' ')), member.name);
                     }
                     else
                     {
-                        cout << "\t" << member.offset << ": (unknown) " << member.name << endl;
+                        printf("\t[%d]\t (unknown)%c %s\n", member.offset, ((member.modifier & FieldInfoModifier::POINTER) ? '*' : ((member.modifier & FieldInfoModifier::REFERENCE) ? '&' : ' ')), member.name);
                     }
                 }
 
@@ -74,6 +75,7 @@ int main( int, char** )
                 }
                 break;
             }
+        /*
         case TypeInfoType::Scalar: {
             cout << "Scalar: " << type.name << endl;
             break;
@@ -87,13 +89,13 @@ int main( int, char** )
             break;
         }
         case TypeInfoType::Enum: {
-            cout << "Enum: " << type.name << endl;
+            cout << "Enum: " << type.name << " :: " << type.enum_info.underlying_type->scalar_info.size << endl;
             break;
         }
         case TypeInfoType::Typedef: {
             cout << "Typedef: " << type.name << endl;
             break;
-        }
+        }*/
         }
     }
 
