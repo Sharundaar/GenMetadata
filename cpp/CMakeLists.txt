@@ -7,6 +7,8 @@ set(SRCS
 set(LIBRARY_OUTPUT_PATH ../bin)
 set(EXECUTABLE_OUTPUT_PATH ../bin)
 
+set(CMAKE_CXX_STANDARD 17)
+
 add_library(TypeInfo STATIC ${SRCS})
 add_executable(TypeInfoTest type_db.cpp main.cpp)
 
