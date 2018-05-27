@@ -34,7 +34,6 @@ struct TypeInfoSource {
 struct TypeInfo {
     name: String,
     source_file: Option<TypeInfoSource>,
-    built_in: bool,
     _struct:     Option<TypeInfoStruct>,
     _field:      Option<TypeInfoField>,
     _scalar:     Option<TypeInfoScalar>,
@@ -132,7 +131,6 @@ struct ExportContext {
     file: File,
     indentation: String,
     indent_str:  String,
-    id_pool:     u64,
 
     type_var_override: Vec<String>,
 }
@@ -207,6 +205,7 @@ macro_rules! gm_error {
     ($fmt:expr, $($arg:tt)*) => {Err(GMError::error(format!($fmt,$($arg)*)))};
 }
 
+#[allow(unused_macros)]
 macro_rules! gm_warning {
     ($fmt:expr) => {Err(GMError::warning( String::from($fmt)))};
     ($fmt:expr, $($arg:tt)*) => {Err(GMError::warning(format!($fmt, $($arg)*)))};
@@ -220,7 +219,7 @@ macro_rules! gm_info {
 impl ExportContext {
 
     fn new(file: File, indent_str: String) -> ExportContext {
-        ExportContext{ indentation: String::new(), indent_str: indent_str, file: file, id_pool: 0, type_var_override: vec!() }
+        ExportContext{ indent_str: indent_str, file: file, indentation: String::new(), type_var_override: vec!() }
     }
 
     fn begin_scope(&mut self) -> Result<(), GMError> {
@@ -251,12 +250,6 @@ impl ExportContext {
 
     fn newline( &mut self ) -> std::io::Result<()> {
         writeln!( self.file )
-    }
-
-    fn gen_id_str( &mut self, base: String ) -> String {
-        let res = base + &self.id_pool.to_string();
-        self.id_pool += 1;
-        res
     }
 
     fn push_type_var_override( &mut self, tv: String ) {
@@ -293,10 +286,6 @@ fn get_type_info_type<'a>( type_info: &'a TypeInfo ) -> TypeInfoType<'a> {
 
 impl GMError {
     #[allow(dead_code)]
-    fn new( gravity: GMErrorGravity, kind: GMErrorKind, description: String ) -> GMError {
-        GMError{ gravity: gravity, kind: kind, description: description }
-    }
-
     fn warning( description: String ) -> GMError {
         GMError{ gravity: GMErrorGravity::WARNING, kind: GMErrorKind::GENERIC, description: description }
     }
@@ -365,11 +354,6 @@ impl TypeInfo {
 
     fn make_field( mut self, field_name: &str, offset: u32 ) -> TypeInfo {
         self._field = Some( TypeInfoField{ field_name: String::from( field_name ), offset: offset, ..Default::default() } );
-        self
-    }
-
-    fn make_builtin( mut self ) -> TypeInfo {
-        self.built_in = true;
         self
     }
 
@@ -769,7 +753,7 @@ fn write_header( type_info_store: &TypeInfoStore, options: &Options ) -> Result<
 
     writeln!( file )?;
 
-    for type_info in type_info_store.data.iter().filter( |t| t._struct.is_some() && !t.built_in ) {
+    for type_info in type_info_store.data.iter().filter( |t| t._struct.is_some() ) {
         match type_info._struct.as_ref().unwrap().kind {
             TypeInfoStructKind::Struct => writeln!( file, "struct {};", type_info.name )?,
             TypeInfoStructKind::Class => writeln!( file, "class {};", type_info.name )?,
@@ -911,7 +895,7 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo )
     match get_type_info_type( &type_info ) {
         Scalar(_)           => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Scalar );",   type=type_var ),
         Typedef( typedef )  => {
-            if let Some( ref field ) = typedef.field {
+            if typedef.field.is_some() {
                 gm_writeln!( context, "auto& {} = alloc_type_short( TypeInfoType::Typedef );", type_var )
             } else {
                 gm_writeln!( context, "auto& {type} = alloc_type_short( {source}.type );", type=type_var, source=get_type_var( &typedef.source_type ) )
@@ -1168,7 +1152,7 @@ fn write_implementation( type_info_store: &TypeInfoStore, template_instances: &H
             }
         }
 
-        let dependencies = &[ "type_db.h", "basic_types.h" ];
+        let dependencies = &[ "type_db.h" ];
         for dep in dependencies {
             writeln!( context.file, "#include \"{}\"", dep )?;
             includes.remove( dep );
