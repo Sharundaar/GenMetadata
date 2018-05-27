@@ -1401,7 +1401,7 @@ fn main() {
                         .map(|x| x.path() )
                         .filter(|x| x.extension().is_some())
                         .filter(|x| x.extension().unwrap() == "h")
-                        .filter(|x| x == &mainh_path)
+                        .filter(|x| x != &mainh_path)
                         .collect();
 
     match generate_main_file( &files ) {
