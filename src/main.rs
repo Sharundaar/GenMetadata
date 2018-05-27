@@ -1396,10 +1396,12 @@ fn main() {
             .flat_map(|x| x)
             .filter_map( |x| x.ok() );
 
-    let files: Vec<PathBuf> = entries.filter(|x| x.file_type().unwrap().is_file())
+    let mainh_path = PathBuf::from("main.h");
+    let files = entries.filter(|x| x.file_type().unwrap().is_file())
                         .map(|x| x.path() )
                         .filter(|x| x.extension().is_some())
                         .filter(|x| x.extension().unwrap() == "h")
+                        .filter(|x| x == &mainh_path)
                         .collect();
 
     match generate_main_file( &files ) {
