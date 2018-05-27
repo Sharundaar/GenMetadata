@@ -578,7 +578,15 @@ fn from_entity_enumdecl( context: &mut ParseContext, entity: &Entity ) -> Result
                 for child in entity.get_children() {
                     type_enum.enum_values.insert( child.get_name().unwrap().clone(), child.get_enum_constant_value().unwrap() );
                 }
+                if !context.store.has( &type_enum.underlying_type ) {
+                    if let Some( declaration ) = entity.get_enum_underlying_type().unwrap().get_declaration() {
+                        if let Err(e) = from_entity( context, &declaration ) {
+                            println!( "Can't resolve dependency: {}", e );
+                        }
+                    }
+                }
             }
+
 
             let type_info = type_info;
             context.store_type_info(type_info);
@@ -693,8 +701,6 @@ fn from_entity_typedefdecl( context: &mut ParseContext, entity: &Entity ) -> Res
 
     context.store_type_info(type_info);
     return Ok( () );
-
-    // gm_info!( "Found typedef that's not a basic type {} -> {}.", underlying_type, type_name )
 }
 
 fn from_entity( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
@@ -725,12 +731,26 @@ fn write_header( type_info_store: &TypeInfoStore, options: &Options ) -> Result<
 
     // system includes
     {
+        let mut replace_patterns : HashMap<String, String> = HashMap::new();
+        {
+            replace_patterns.insert( "minwindef.h".to_string(), "windows.h".to_string() );
+            replace_patterns.insert( "xstring".to_string(), "string".to_string() );
+        }
+        let replace_patterns = replace_patterns;
+
         let mut includes: HashSet<&str> = HashSet::new();
 
         for type_info in type_info_store.data.iter() {
             if let Some( ref source_file ) = type_info.source_file {
                 if source_file.is_system_file {
-                    includes.insert( &source_file.file_path );
+                    if replace_patterns.contains_key( &source_file.file_path )
+                    {
+                        includes.insert( &replace_patterns[&source_file.file_path] );
+                    }
+                    else
+                    {
+                        includes.insert( &source_file.file_path );
+                    }
                 }
             }
         }
@@ -947,7 +967,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
             } else {
                 gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
             }
-            gm_writeln!( context, "enum_set_underlying_type( {}.enum_info, &type_{} );", type_var, enum_type.underlying_type.replace("int", "i32").replace("ushort", "u16") )?;
+            gm_writeln!( context, "enum_set_underlying_type( {}.enum_info, &{} );", type_var, get_type_var( &enum_type.underlying_type ) )?;
 
             if !enum_type.enum_values.is_empty() {
                 gm_begin_scope!( context )?;
@@ -1038,7 +1058,9 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
 
             if context.type_var_override.is_empty() {
                 gm_begin_scope!( context )?;
-                gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var )?;
+                gm_writeln!( context, "auto& {type} = *((TypeInfo*)alloc_data( alloc_data_param, sizeof( TypeInfo ) ));", type=type_var )?;
+                gm_writeln!( context, "type_set_type( {type}, TypeInfoType::Function );", type=type_var )?;
+                gm_writeln!( context, "{type} = {{}};", type=type_var )?;
             } else {
                 write_type_instantiation( context, type_info )?;
             }
