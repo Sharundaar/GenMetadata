@@ -34,7 +34,6 @@ struct TypeInfoSource {
 struct TypeInfo {
     name: String,
     source_file: Option<TypeInfoSource>,
-    built_in: bool,
     _struct:     Option<TypeInfoStruct>,
     _field:      Option<TypeInfoField>,
     _scalar:     Option<TypeInfoScalar>,
@@ -132,7 +131,6 @@ struct ExportContext {
     file: File,
     indentation: String,
     indent_str:  String,
-    id_pool:     u64,
 
     type_var_override: Vec<String>,
 }
@@ -207,6 +205,7 @@ macro_rules! gm_error {
     ($fmt:expr, $($arg:tt)*) => {Err(GMError::error(format!($fmt,$($arg)*)))};
 }
 
+#[allow(unused_macros)]
 macro_rules! gm_warning {
     ($fmt:expr) => {Err(GMError::warning( String::from($fmt)))};
     ($fmt:expr, $($arg:tt)*) => {Err(GMError::warning(format!($fmt, $($arg)*)))};
@@ -220,7 +219,7 @@ macro_rules! gm_info {
 impl ExportContext {
 
     fn new(file: File, indent_str: String) -> ExportContext {
-        ExportContext{ indentation: String::new(), indent_str: indent_str, file: file, id_pool: 0, type_var_override: vec!() }
+        ExportContext{ indent_str: indent_str, file: file, indentation: String::new(), type_var_override: vec!() }
     }
 
     fn begin_scope(&mut self) -> Result<(), GMError> {
@@ -251,12 +250,6 @@ impl ExportContext {
 
     fn newline( &mut self ) -> std::io::Result<()> {
         writeln!( self.file )
-    }
-
-    fn gen_id_str( &mut self, base: String ) -> String {
-        let res = base + &self.id_pool.to_string();
-        self.id_pool += 1;
-        res
     }
 
     fn push_type_var_override( &mut self, tv: String ) {
@@ -293,10 +286,6 @@ fn get_type_info_type<'a>( type_info: &'a TypeInfo ) -> TypeInfoType<'a> {
 
 impl GMError {
     #[allow(dead_code)]
-    fn new( gravity: GMErrorGravity, kind: GMErrorKind, description: String ) -> GMError {
-        GMError{ gravity: gravity, kind: kind, description: description }
-    }
-
     fn warning( description: String ) -> GMError {
         GMError{ gravity: GMErrorGravity::WARNING, kind: GMErrorKind::GENERIC, description: description }
     }
@@ -365,11 +354,6 @@ impl TypeInfo {
 
     fn make_field( mut self, field_name: &str, offset: u32 ) -> TypeInfo {
         self._field = Some( TypeInfoField{ field_name: String::from( field_name ), offset: offset, ..Default::default() } );
-        self
-    }
-
-    fn make_builtin( mut self ) -> TypeInfo {
-        self.built_in = true;
         self
     }
 
@@ -594,7 +578,15 @@ fn from_entity_enumdecl( context: &mut ParseContext, entity: &Entity ) -> Result
                 for child in entity.get_children() {
                     type_enum.enum_values.insert( child.get_name().unwrap().clone(), child.get_enum_constant_value().unwrap() );
                 }
+                if !context.store.has( &type_enum.underlying_type ) {
+                    if let Some( declaration ) = entity.get_enum_underlying_type().unwrap().get_declaration() {
+                        if let Err(e) = from_entity( context, &declaration ) {
+                            println!( "Can't resolve dependency: {}", e );
+                        }
+                    }
+                }
             }
+
 
             let type_info = type_info;
             context.store_type_info(type_info);
@@ -709,8 +701,6 @@ fn from_entity_typedefdecl( context: &mut ParseContext, entity: &Entity ) -> Res
 
     context.store_type_info(type_info);
     return Ok( () );
-
-    // gm_info!( "Found typedef that's not a basic type {} -> {}.", underlying_type, type_name )
 }
 
 fn from_entity( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
@@ -741,12 +731,26 @@ fn write_header( type_info_store: &TypeInfoStore, options: &Options ) -> Result<
 
     // system includes
     {
+        let mut replace_patterns : HashMap<String, String> = HashMap::new();
+        {
+            replace_patterns.insert( "minwindef.h".to_string(), "windows.h".to_string() );
+            replace_patterns.insert( "xstring".to_string(), "string".to_string() );
+        }
+        let replace_patterns = replace_patterns;
+
         let mut includes: HashSet<&str> = HashSet::new();
 
         for type_info in type_info_store.data.iter() {
             if let Some( ref source_file ) = type_info.source_file {
                 if source_file.is_system_file {
-                    includes.insert( &source_file.file_path );
+                    if replace_patterns.contains_key( &source_file.file_path )
+                    {
+                        includes.insert( &replace_patterns[&source_file.file_path] );
+                    }
+                    else
+                    {
+                        includes.insert( &source_file.file_path );
+                    }
                 }
             }
         }
@@ -769,7 +773,7 @@ fn write_header( type_info_store: &TypeInfoStore, options: &Options ) -> Result<
 
     writeln!( file )?;
 
-    for type_info in type_info_store.data.iter().filter( |t| t._struct.is_some() && !t.built_in ) {
+    for type_info in type_info_store.data.iter().filter( |t| t._struct.is_some() ) {
         match type_info._struct.as_ref().unwrap().kind {
             TypeInfoStructKind::Struct => writeln!( file, "struct {};", type_info.name )?,
             TypeInfoStructKind::Class => writeln!( file, "class {};", type_info.name )?,
@@ -911,7 +915,7 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo )
     match get_type_info_type( &type_info ) {
         Scalar(_)           => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Scalar );",   type=type_var ),
         Typedef( typedef )  => {
-            if let Some( ref field ) = typedef.field {
+            if typedef.field.is_some() {
                 gm_writeln!( context, "auto& {} = alloc_type_short( TypeInfoType::Typedef );", type_var )
             } else {
                 gm_writeln!( context, "auto& {type} = alloc_type_short( {source}.type );", type=type_var, source=get_type_var( &typedef.source_type ) )
@@ -963,7 +967,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
             } else {
                 gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
             }
-            gm_writeln!( context, "enum_set_underlying_type( {}.enum_info, &type_{} );", type_var, enum_type.underlying_type.replace("int", "i32").replace("ushort", "u16") )?;
+            gm_writeln!( context, "enum_set_underlying_type( {}.enum_info, &{} );", type_var, get_type_var( &enum_type.underlying_type ) )?;
 
             if !enum_type.enum_values.is_empty() {
                 gm_begin_scope!( context )?;
@@ -1054,7 +1058,9 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
 
             if context.type_var_override.is_empty() {
                 gm_begin_scope!( context )?;
-                gm_writeln!( context, "auto& {type} = alloc_type( alloc_type_param ); type_set_type( {type}, TypeInfoType::Function );", type=type_var )?;
+                gm_writeln!( context, "auto& {type} = *((TypeInfo*)alloc_data( alloc_data_param, sizeof( TypeInfo ) ));", type=type_var )?;
+                gm_writeln!( context, "type_set_type( {type}, TypeInfoType::Function );", type=type_var )?;
+                gm_writeln!( context, "{type} = {{}};", type=type_var )?;
             } else {
                 write_type_instantiation( context, type_info )?;
             }
@@ -1168,7 +1174,7 @@ fn write_implementation( type_info_store: &TypeInfoStore, template_instances: &H
             }
         }
 
-        let dependencies = &[ "type_db.h", "basic_types.h" ];
+        let dependencies = &[ "type_db.h" ];
         for dep in dependencies {
             writeln!( context.file, "#include \"{}\"", dep )?;
             includes.remove( dep );
@@ -1412,10 +1418,12 @@ fn main() {
             .flat_map(|x| x)
             .filter_map( |x| x.ok() );
 
-    let files: Vec<PathBuf> = entries.filter(|x| x.file_type().unwrap().is_file())
+    let mainh_path = PathBuf::from("main.h");
+    let files = entries.filter(|x| x.file_type().unwrap().is_file())
                         .map(|x| x.path() )
                         .filter(|x| x.extension().is_some())
                         .filter(|x| x.extension().unwrap() == "h")
+                        .filter(|x| x != &mainh_path)
                         .collect();
 
     match generate_main_file( &files ) {

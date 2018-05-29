@@ -8,7 +8,7 @@ from glob import iglob
 gen_metadata_rust_build_command = "cargo build --release"
 gen_metadata_rust_exec_path = "target/release/gen-metadata.exe"
 gen_metadata_libclang_path  = "libclang.dll"
-gen_metadata_rust_run_command = "{} cpp".format(gen_metadata_rust_exec_path)
+gen_metadata_rust_run_command = "{} cpp --output cpp".format(gen_metadata_rust_exec_path)
 gen_metadata_cpp_build_command = "cmake --build build --target ALL_BUILD --config Debug"
 gen_metadata_cpp_exec_path = "cpp/bin/Debug/TypeInfo.lib"
 gen_metadata_cpp_include_list = [
