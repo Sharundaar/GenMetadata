@@ -15,6 +15,7 @@
 type_db.h
 type_db.cpp
 main.h
+log.txt
 
 example/
 cpp/build
