@@ -24,7 +24,7 @@ TypeInfo& alloc_type( void* buffer )
 
 void* alloc_data( void* buffer, uint32_t size )
 {
-    void* alloc = (u32*)buffer + s_data_alloc_index;
+    void* alloc = (u8*)buffer + s_data_alloc_index;
     s_data_alloc_index += size;
     return alloc;
 }

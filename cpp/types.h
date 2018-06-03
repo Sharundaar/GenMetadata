@@ -215,6 +215,21 @@ void field_set_modifiers( FieldInfo& field, FieldInfoModifier modifiers );
 
 void typedef_set_field( TypedefInfo& type, FieldInfo info );
 
+struct TypeDefaultAllocator
+{
+    uint8_t* type_buffer = nullptr;
+    uint8_t* data_buffer = nullptr;
+
+    uint32_t type_capacity = 0;
+    uint32_t type_size     = 0;
+
+    uint32_t data_capacity = 0;
+    uint32_t data_size     = 0;
+};
+
+TypeInfo& default_type_allocator( void* type_default_allocator );
+void*     default_data_allocator( void* type_default_allocator, uint32_t size );
+
 #endif
 
 #ifdef TYPES_IMPLEMENTATION
@@ -423,6 +438,28 @@ const TypeInfo* TemplateDefInfo::get_instance( const TemplateParam* params, uint
 void typedef_set_field( TypedefInfo& type, FieldInfo info )
 {
     type.info = info;
+}
+
+TypeInfo& default_type_allocator( void* type_default_allocator )
+{
+    auto* allocator = reinterpret_cast<TypeDefaultAllocator*>( type_default_allocator );
+
+    // @TODO: Add check for size and capacity...
+
+    TypeInfo* alloc = nullptr;
+    alloc = new (allocator->type_buffer + allocator->type_size) TypeInfo();
+    allocator->type_size += sizeof( TypeInfo );
+
+    return *alloc;
+}
+
+void* default_data_allocator( void* type_default_allocator, uint32_t size )
+{
+    auto* allocator = reinterpret_cast<TypeDefaultAllocator*>( type_default_allocator );
+
+    void* alloc = allocator->data_buffer + allocator->data_size;
+    allocator->data_size += size;
+    return alloc;
 }
 
 #endif
