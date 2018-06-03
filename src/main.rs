@@ -567,6 +567,7 @@ fn from_entity_fielddecl( context: &mut ParseContext, entity: &Entity, parent_ty
 
 fn from_entity_enumdecl( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
     if !entity.is_definition() { return gm_info!( "not definition" ); }
+    if entity.get_name().is_none() { return gm_info!( "anonymous" ); }
     match entity.get_type() {
         Some( type_def ) => {
             let mut type_info = TypeInfo::new( type_def.get_display_name() ).make_enum( &entity.get_enum_underlying_type().unwrap().get_display_name() );
@@ -673,34 +674,36 @@ fn from_entity_typedefdecl( context: &mut ParseContext, entity: &Entity ) -> Res
     let mut type_info = TypeInfo::new( type_name ).make_typedef( underlying_type_name );
     type_info.source_file = get_source_file( entity );
 
-    if let Some( declaration ) = underlying_type.get_declaration() {
-        if let Some( definition ) = declaration.get_definition() {
-            let type_info_field = from_entity_fielddecl( context, &definition, None )?;
-            if type_info_field._field != Some( TypeInfoField::default() ) {
-                type_info._typedef.as_mut().unwrap().field = Some( Box::new( type_info_field ) );
-            }
-        }
-    } else {
-        let mut type_info_field = TypeInfo::new( "" ).make_field( "", 0 );
-        {
-            let mut field_info = type_info_field._field.as_mut().unwrap();
-            let type_def = make_field_from_type( &mut field_info, &underlying_type )?;
-            type_info_field.name = sanitize_type_name( &underlying_type );
-            if !context.store.has( &type_info_field.name ) {
-                if let Some( declaration ) = type_def.get_declaration() {
+    let mut type_info_field = TypeInfo::new( "" ).make_field( "", 0 );
+    {
+        let mut field_info = type_info_field._field.as_mut().unwrap();
+        let type_def = make_field_from_type( &mut field_info, &underlying_type )?;
+        type_info_field.name = sanitize_type_name( &underlying_type );
+        if !context.store.has( &type_info_field.name ) {
+            if let Some( declaration ) = type_def.get_declaration() {
+                if let Some( definition ) = declaration.get_definition() {
+                    if let Err(e) = from_entity( context, &definition ) {
+                        println!( "Can't resolve dependency: {}", e );
+                    }
+                } else {
                     if let Err(e) = from_entity( context, &declaration ) {
                         println!( "Can't resolve dependency: {}", e );
                     }
                 }
             }
         }
-        if type_info_field._field != Some( TypeInfoField::default() ) {
-            type_info._typedef.as_mut().unwrap().field = Some( Box::new( type_info_field ) );
-        }
+    }
+    if type_info_field._field != Some( TypeInfoField::default() ) {
+        type_info._typedef.as_mut().unwrap().field = Some( Box::new( type_info_field ) );
     }
 
-    context.store_type_info(type_info);
-    return Ok( () );
+    if type_info.name == type_info._typedef.as_ref().unwrap().source_type {
+        gm_info!( "Found typedef to C struct (eg. typedef struct MyStruct MyStruct)." )
+    } else {
+        context.store_type_info(type_info);
+        Ok( () )
+    }
+
 }
 
 fn from_entity( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMError> {
@@ -907,7 +910,7 @@ fn get_type_id( type_info: &TypeInfo ) -> String {
     format!( "{}_id", type_name.replace("::", "_").replace( " ", "_" ) )
 }
 
-fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo ) -> std::io::Result<()> {
+fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo, type_info_store: &TypeInfoStore ) -> std::io::Result<()> {
     let type_name = &type_info.name;
     let type_var  = get_field_var( &type_name, &type_info._field );
     
@@ -915,7 +918,7 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo )
     match get_type_info_type( &type_info ) {
         Scalar(_)           => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Scalar );",   type=type_var ),
         Typedef( typedef )  => {
-            if typedef.field.is_some() {
+            if typedef.field.is_some() || !type_info_store.has( &typedef.source_type ) {
                 gm_writeln!( context, "auto& {} = alloc_type_short( TypeInfoType::Typedef );", type_var )
             } else {
                 gm_writeln!( context, "auto& {type} = alloc_type_short( {source}.type );", type=type_var, source=get_type_var( &typedef.source_type ) )
@@ -1062,7 +1065,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
                 gm_writeln!( context, "type_set_type( {type}, TypeInfoType::Function );", type=type_var )?;
                 gm_writeln!( context, "{type} = {{}};", type=type_var )?;
             } else {
-                write_type_instantiation( context, type_info )?;
+                write_type_instantiation( context, type_info, type_info_store )?;
             }
 
             gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, func_name )?;
@@ -1104,6 +1107,9 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
                 context.push_type_var_override( format!("{}.typedef_info.info", type_var ) );
                 write_type_implementation( context, type_info_store, template_instances, &*field, indent_count+3 )?;
                 context.pop_type_var_override();
+            } else if !type_info_store.has( &typedef_type.source_type ) {
+                gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
+                gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
             } else {
                 gm_writeln!( context, "{} = {};", type_var, source_type_var )?;
                 gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
@@ -1210,7 +1216,7 @@ fn write_implementation( type_info_store: &TypeInfoStore, template_instances: &H
     gm_writeln!( context )?;
 
     for type_info in type_info_store.data.iter() {
-        write_type_instantiation( &mut context, type_info )?;
+        write_type_instantiation( &mut context, type_info, type_info_store )?;
     }
 
     gm_writeln!( context )?;
