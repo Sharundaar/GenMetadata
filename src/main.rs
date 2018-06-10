@@ -570,7 +570,7 @@ fn from_entity_enumdecl( context: &mut ParseContext, entity: &Entity ) -> Result
     if entity.get_name().is_none() { return gm_info!( "anonymous" ); }
     match entity.get_type() {
         Some( type_def ) => {
-            let mut type_info = TypeInfo::new( type_def.get_display_name() ).make_enum( &entity.get_enum_underlying_type().unwrap().get_display_name() );
+            let mut type_info = TypeInfo::new( type_def.get_display_name() ).make_enum( &entity.get_enum_underlying_type().unwrap().get_canonical_type().get_display_name() );
             type_info.source_file = get_source_file( entity );
 
             {
