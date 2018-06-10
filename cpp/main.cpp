@@ -4,7 +4,6 @@
 
 #define TYPES_IMPLEMENTATION
 #include "types.h"
-#undef TYPES_IMPLEMENTATION
 #include "type_db.h"
 #include "test.h"
 

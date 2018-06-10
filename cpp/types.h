@@ -230,8 +230,6 @@ struct TypeDefaultAllocator
 TypeInfo& default_type_allocator( void* type_default_allocator );
 void*     default_data_allocator( void* type_default_allocator, uint32_t size );
 
-#endif
-
 #ifdef TYPES_IMPLEMENTATION
 
 void scalar_set_type( ScalarInfo& type, ScalarInfoType scalar_type )
@@ -461,5 +459,7 @@ void* default_data_allocator( void* type_default_allocator, uint32_t size )
     allocator->data_size += size;
     return alloc;
 }
+
+#endif
 
 #endif
