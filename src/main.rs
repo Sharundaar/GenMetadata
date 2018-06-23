@@ -95,9 +95,12 @@ struct TypeInfoScalar {
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
+struct EnumValue(String, (i64, u64));
+
+#[derive(Clone, Default, PartialEq, Eq)]
 struct TypeInfoEnum {
     underlying_type: String,
-    enum_values: HashMap<String, (i64, u64)>,
+    enum_values: Vec<EnumValue>,
     is_scoped: bool,
 }
 
@@ -577,7 +580,7 @@ fn from_entity_enumdecl( context: &mut ParseContext, entity: &Entity ) -> Result
                 let mut type_enum = type_info._enum.as_mut().unwrap();
                 type_enum.is_scoped = entity.is_scoped();
                 for child in entity.get_children() {
-                    type_enum.enum_values.insert( child.get_name().unwrap().clone(), child.get_enum_constant_value().unwrap() );
+                    type_enum.enum_values.push( EnumValue(child.get_name().unwrap().clone(), child.get_enum_constant_value().unwrap()) );
                 }
                 if !context.store.has( &type_enum.underlying_type ) {
                     if let Some( declaration ) = entity.get_enum_underlying_type().unwrap().get_declaration() {
@@ -975,10 +978,8 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
             if !enum_type.enum_values.is_empty() {
                 gm_begin_scope!( context )?;
                 gm_writeln!( context, "auto values = (EnumValue*)alloc_data( alloc_data_param, sizeof(EnumValue) * {} );", enum_type.enum_values.len() )?;
-                let mut val = 0;
-                for ( name, &(value, _) ) in &enum_type.enum_values {
-                    gm_writeln!( context, "values[{}] = {{ copy_string( \"{}\" ), {} }};", val, name, value )?;
-                    val = val + 1;
+                for (idx, &EnumValue( ref name, (value, _) ) ) in enum_type.enum_values.iter().enumerate() {
+                    gm_writeln!( context, "values[{}] = {{ copy_string( \"{}\" ), {} }};", idx, name, value )?;
                 }
                 gm_writeln!( context, "enum_set_values( {}.enum_info, values, {} );", type_var, enum_type.enum_values.len() )?;
                 gm_end_scope!( context )?;
@@ -1321,7 +1322,7 @@ fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
             Enum(type_enum) => {
                 println!("Enum: {} ({})", type_info.name, type_enum.underlying_type);
 
-                for (name, &(_, uval)) in &type_enum.enum_values {
+                for &EnumValue(ref name, (_, uval)) in type_enum.enum_values.iter() {
                     println!("    {}: {}", name, uval);
                 }
             }
