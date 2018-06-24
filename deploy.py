@@ -15,7 +15,7 @@ gen_metadata_cpp_include_list = [
     "cpp/types.h"
 ]
 
-gen_metadata_cpp_test_expected_output = [ 'type_db.cpp', 'type_db.h' ]
+gen_metadata_cpp_test_expected_output = [ 'cpp/type_db.cpp', 'cpp/type_db.h' ]
 
 gen_metadata_dest_path = "../Externals/GenMetadata"
 
@@ -36,15 +36,6 @@ if result.returncode != 0:
     sys.stdout.write( colored( ' Failure\n', 'red' ) )
     print( result.stderr.decode('utf-8') )
     sys.exit( result.returncode )
-
-for out in gen_metadata_cpp_test_expected_output:
-    try:
-        copy2( out, "cpp" )
-    except IOError as e:
-        sys.stdout.write( colored(' Failure\n', 'red' ) )
-        print( e )
-        sys.exit( 1 )
-
 sys.stdout.write( colored(' Success\n', 'green' ) )
 
 sys.stdout.write( 'Compiling CPP source...' )

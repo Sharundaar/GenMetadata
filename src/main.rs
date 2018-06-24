@@ -823,12 +823,12 @@ fn write_header( type_info_store: &TypeInfoStore, options: &Options ) -> Result<
     for type_info in type_info_store.data.iter() {
         use TypeInfoType::*;
         match get_type_info_type( &type_info ) {
-            Scalar(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (uint32_t)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
+            Scalar(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return (TypeId)LocalTypeId::{}; }}", type_info.name, get_type_id(&type_info) )?; }
             Typedef(_) => { continue; }
-            Struct(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (uint32_t)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; }
+            Struct(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return (TypeId)LocalTypeId::{}; }}", type_info.name, get_type_id(&type_info) )?; }
             Enum( enum_info )    => {
                 if enum_info.is_scoped {
-                    writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return {{ 0, (uint32_t)LocalTypeId::{} }}; }}", type_info.name, get_type_id(&type_info) )?; 
+                    writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return (TypeId)LocalTypeId::{}; }}", type_info.name, get_type_id(&type_info) )?; 
                 }
                 else {
                     continue;
@@ -971,7 +971,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
             if enum_type.is_scoped {
                 gm_writeln!( context, "type_set_id( {}, type_id<{}>() );", type_var, type_info.name )?;
             } else {
-                gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
+                gm_writeln!( context, "type_set_id( {}, (TypeId)LocalTypeId::{} );", type_var, get_type_id( &type_info ) )?;
             }
             gm_writeln!( context, "enum_set_underlying_type( {}.enum_info, &{} );", type_var, get_type_var( &enum_type.underlying_type ) )?;
 
@@ -991,7 +991,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
 // Impl Template
         Template( _template_type ) => {
             gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
-            gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
+            gm_writeln!( context, "type_set_id( {}, (TypeId)LocalTypeId::{} );", type_var, get_type_id( &type_info ) )?;
             if let Some(instances) = template_instances.get( type_name ) {
                 let instances_var_name = format!( "{}_instances", type_var );
                 gm_writeln!( context, "auto {} = (TypeInfo*)alloc_data( alloc_data_param, sizeof(TypeInfo) * {} );", instances_var_name, instances.len() )?;
@@ -1104,17 +1104,17 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
             let source_type_var = get_type_var( &typedef_type.source_type );
             if let Some( ref field ) = typedef_type.field {
                 gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
-                gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
+                gm_writeln!( context, "type_set_id( {}, (TypeId)LocalTypeId::{} );", type_var, get_type_id( &type_info ) )?;
                 context.push_type_var_override( format!("{}.typedef_info.info", type_var ) );
                 write_type_implementation( context, type_info_store, template_instances, &*field, indent_count+3 )?;
                 context.pop_type_var_override();
             } else if !type_info_store.has( &typedef_type.source_type ) {
                 gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
-                gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
+                gm_writeln!( context, "type_set_id( {}, (TypeId)LocalTypeId::{} );", type_var, get_type_id( &type_info ) )?;
             } else {
                 gm_writeln!( context, "{} = {};", type_var, source_type_var )?;
                 gm_writeln!( context, "type_set_name( {}, copy_string( \"{}\" ) );", type_var, type_name )?;
-                gm_writeln!( context, "type_set_id( {}, {{ 0, (uint32_t)LocalTypeId::{} }} );", type_var, get_type_id( &type_info ) )?;
+                gm_writeln!( context, "type_set_id( {}, (TypeId)LocalTypeId::{} );", type_var, get_type_id( &type_info ) )?;
             }
             gm_writeln!( context )?;
         }

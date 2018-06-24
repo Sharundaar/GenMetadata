@@ -3,7 +3,6 @@
 
 #include <cstdint>
 
-struct TypeId;
 struct TypeInfo;
 struct ScalarInfo;
 struct EnumInfo;
@@ -17,11 +16,7 @@ struct TemplateInstanceRef;
 
 
 #define INVALID_TYPE_ID ((uint32_t)0-1)
-struct TypeId
-{
-    uint32_t global_type = INVALID_TYPE_ID;
-    uint32_t local_type  = INVALID_TYPE_ID;
-};
+typedef std::uint32_t TypeId;
 template<typename T> constexpr TypeId type_id();
 
 enum class ScalarInfoType
@@ -324,6 +319,9 @@ void type_set_type( TypeInfo& type, TypeInfoType type_type )
             break;
         case TypeInfoType::TemplateInst:
             type.template_inst_info = {};
+            break;
+        case TypeInfoType::Typedef:
+            type.typedef_info = {};
             break;
     }
 }
