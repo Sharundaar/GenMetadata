@@ -1125,9 +1125,7 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
             if field_type.field_name.len() > 0 {
                 gm_writeln!( context, "field_set_name( {}, copy_string( \"{}\" ) );", type_var, field_type.field_name)?;
             }
-            if field_type.offset != 0 {
-                gm_writeln!( context, "field_set_offset( {}, {} );", type_var, field_type.offset )?;
-            }
+            gm_writeln!( context, "field_set_offset( {}, {} );", type_var, field_type.offset )?;
             gm_writeln!( context, "field_set_modifiers( {}, (FieldInfoModifier) ({}) );", type_var, build_modifier_string( &field_type ) )?;
 
             if let Some( registered_type ) = type_info_store.get( &type_info.name ) {
