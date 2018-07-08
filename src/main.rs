@@ -73,7 +73,7 @@ struct TypeInfoStruct {
 struct TypeInfoField {
     field_name: String,
     templates: Option<Vec<TypeInfo>>,
-    offset: u32,
+    parent_name: String,
     is_const: bool,
     is_private: bool,
     is_ptr: bool,
@@ -355,8 +355,8 @@ impl TypeInfo {
         self
     }
 
-    fn make_field( mut self, field_name: &str, offset: u32 ) -> TypeInfo {
-        self._field = Some( TypeInfoField{ field_name: String::from( field_name ), offset: offset, ..Default::default() } );
+    fn make_field( mut self, field_name: &str ) -> TypeInfo {
+        self._field = Some( TypeInfoField{ field_name: String::from( field_name ), ..Default::default() } );
         self
     }
 
@@ -521,7 +521,7 @@ fn make_field_from_type<'a>( field_info: &mut TypeInfoField, type_def: &'a Type 
         if type_def.get_typedef_name().is_none() { // @TODO: This will fail if the typedef is a type alias of a partially specialized template
             let mut tas: Vec<TypeInfo> = vec!();
             for arg in template_args.iter().filter_map( |a| *a ) {
-                let mut thing = TypeInfo::new( "" ).make_field( "", 0 );
+                let mut thing = TypeInfo::new( "" ).make_field( "" );
                 let true_type = make_field_from_type( thing._field.as_mut().unwrap(), &arg )?;
                 thing.name = sanitize_type_name( &true_type );
                 tas.push( thing );
@@ -537,9 +537,14 @@ fn from_entity_fielddecl( context: &mut ParseContext, entity: &Entity, parent_ty
     match ( entity.get_name(), entity.get_type() ) {
         ( Some( name ), Some( type_def ) ) => {
             // type name filled in later
-            let mut type_info = TypeInfo::new( "" ).make_field( &name, if let Some(parent_type) = parent_type { ( parent_type.get_offsetof( &name ).unwrap_or(0) as u32 ) / 8 } else { 0 } );
+            let mut type_info = TypeInfo::new( "" ).make_field( &name );
             {
                 let mut field_info = type_info._field.as_mut().unwrap();
+                field_info.parent_name = if let Some(parent_type) = parent_type { 
+                    sanitize_type_name( parent_type ) 
+                } else { 
+                    String::new()
+                };
 
                 if let Some(accessibility) = entity.get_accessibility() {
                     use Accessibility::*;
@@ -614,7 +619,7 @@ fn from_entity_funcdecl( context: &mut ParseContext, entity: &Entity ) -> Result
             let return_type_type = ent_type.get_result_type().unwrap();
             let mut return_type: Option<Box<TypeInfo>> = None;
             if return_type_type.get_display_name() != "void" {
-                let mut return_type_ti = TypeInfo::new( "" ).make_field( "", 0 );
+                let mut return_type_ti = TypeInfo::new( "" ).make_field( "" );
                 let return_type_type = make_field_from_type( return_type_ti._field.as_mut().unwrap(), &return_type_type )?;
                 return_type_ti.name = sanitize_type_name( &return_type_type );
                 return_type = Some( Box::new( return_type_ti ) );
@@ -677,7 +682,7 @@ fn from_entity_typedefdecl( context: &mut ParseContext, entity: &Entity ) -> Res
     let mut type_info = TypeInfo::new( type_name ).make_typedef( underlying_type_name );
     type_info.source_file = get_source_file( entity );
 
-    let mut type_info_field = TypeInfo::new( "" ).make_field( "", 0 );
+    let mut type_info_field = TypeInfo::new( "" ).make_field( "" );
     {
         let mut field_info = type_info_field._field.as_mut().unwrap();
         let type_def = make_field_from_type( &mut field_info, &underlying_type )?;
@@ -1125,7 +1130,11 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
             if field_type.field_name.len() > 0 {
                 gm_writeln!( context, "field_set_name( {}, copy_string( \"{}\" ) );", type_var, field_type.field_name)?;
             }
-            gm_writeln!( context, "field_set_offset( {}, {} );", type_var, field_type.offset )?;
+
+            if field_type.parent_name.len() > 0 && !field_type.is_private {
+                gm_writeln!( context, "field_set_offset( {}, offsetof( {}, {} ) );", type_var, field_type.parent_name, field_type.field_name )?;
+            }
+
             gm_writeln!( context, "field_set_modifiers( {}, (FieldInfoModifier) ({}) );", type_var, build_modifier_string( &field_type ) )?;
 
             if let Some( registered_type ) = type_info_store.get( &type_info.name ) {
@@ -1275,7 +1284,7 @@ fn get_built_in_types() -> Vec<TypeInfo> {
 }
 
 fn get_clang_arguments( input_directories: &Vec<String>, additional_include_directories: &Vec<String> ) -> Vec<String> {
-    let mut arguments: Vec<String> = vec![ "-x".into(), "c++".into() ];
+    let mut arguments: Vec<String> = vec![ "-x".into(), "c++".into(), "-g".into() ];
 
     for ref directory in input_directories.iter().chain( additional_include_directories.iter() ) {
         arguments.push( format!( "-I{}", directory ) );
@@ -1305,7 +1314,7 @@ fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
                     println!("    has_default_constructor: false");
                 }
                 for field in &type_struct.fields {
-                    println!("    {}: {} ({})", field._field.as_ref().unwrap().offset, field._field.as_ref().unwrap().field_name, field.name);
+                    println!("    {} ({})", field._field.as_ref().unwrap().field_name, field.name);
                 }
                 for function in &type_struct.functions {
                     let _func_type = function._func.as_ref().unwrap();
