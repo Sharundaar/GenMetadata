@@ -828,12 +828,12 @@ fn write_header( type_info_store: &TypeInfoStore, options: &Options ) -> Result<
     for type_info in type_info_store.data.iter() {
         use TypeInfoType::*;
         match get_type_info_type( &type_info ) {
-            Scalar(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return (TypeId)LocalTypeId::{}; }}", type_info.name, get_type_id(&type_info) )?; }
+            Scalar(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return static_cast<TypeId>(LocalTypeId::{}); }}", type_info.name, get_type_id(&type_info) )?; }
             Typedef(_) => { continue; }
-            Struct(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return (TypeId)LocalTypeId::{}; }}", type_info.name, get_type_id(&type_info) )?; }
+            Struct(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return static_cast<TypeId>(LocalTypeId::{}); }}", type_info.name, get_type_id(&type_info) )?; }
             Enum( enum_info )    => {
                 if enum_info.is_scoped {
-                    writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return (TypeId)LocalTypeId::{}; }}", type_info.name, get_type_id(&type_info) )?; 
+                    writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return static_cast<TypeId>(LocalTypeId::{}); }}", type_info.name, get_type_id(&type_info) )?; 
                 }
                 else {
                     continue;
