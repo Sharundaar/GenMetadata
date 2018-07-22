@@ -1,4 +1,3 @@
-extern crate argparse;
 extern crate clang;
 
 use std::path::PathBuf;
@@ -6,7 +5,6 @@ use std::fmt;
 use std::fmt::Display;
 use std::fs::read_dir;
 use std::time::Instant;
-use argparse::{ArgumentParser, StoreTrue, StoreOption, Collect, List};
 use clang::*;
 use std::result::Result;
 use std::fs::File;
@@ -14,15 +12,7 @@ use std::io::Write;
 use std::collections::HashSet;
 use std::collections::HashMap;
 
-#[derive(Default)]
-struct Options {
-    verbose: bool,
-    input_directories: Vec<String>,
-    additional_include_directories: Vec<String>,
-    output_directory: Option<String>,
-    no_output: bool,
-    no_report: bool,
-}
+mod app_params;
 
 #[derive(Clone, Default, PartialEq, Eq )]
 struct TypeInfoSource {
@@ -727,11 +717,11 @@ fn from_entity( context: &mut ParseContext, entity: &Entity ) -> Result<(), GMEr
     }
 }
 
-fn write_header( type_info_store: &TypeInfoStore, options: &Options ) -> Result<bool, GMError> {
+fn write_header( type_info_store: &TypeInfoStore, output_dir: &str ) -> Result<bool, GMError> {
     let mut file = File::create( {
         use std::path::PathBuf;
         let mut pathbuf = PathBuf::new();
-        if let Some(ref dir) = options.output_directory { pathbuf.push(dir); }
+        pathbuf.push(output_dir);
         pathbuf.push("type_db.h");
         pathbuf
     } )?;
@@ -1166,11 +1156,11 @@ fn write_type_implementation( context: &mut ExportContext, type_info_store: &Typ
     Ok(true)
 }
 
-fn write_implementation( type_info_store: &TypeInfoStore, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, options: &Options ) -> Result<bool, GMError> {
+fn write_implementation( type_info_store: &TypeInfoStore, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, output_dir: &str ) -> Result<bool, GMError> {
     let file = File::create( {
         use std::path::PathBuf;
         let mut pathbuf = PathBuf::new();
-        if let Some(ref dir) = options.output_directory { pathbuf.push(dir); }
+        pathbuf.push(output_dir);
         pathbuf.push("type_db.cpp");
         pathbuf
     } )?;
@@ -1379,7 +1369,7 @@ fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
     }
 }
 
-fn parse_translation_unit( tu: &TranslationUnit, options: &Options ) -> ParseContext {
+fn parse_translation_unit( tu: &TranslationUnit, verbose: bool ) -> ParseContext {
     let mut context = ParseContext::default();
     for built_in in get_built_in_types() {
         context.store_type_info( built_in.clone() );
@@ -1390,7 +1380,7 @@ fn parse_translation_unit( tu: &TranslationUnit, options: &Options ) -> ParseCon
             Ok( _ ) =>  {
             },
             Err( error ) => {
-                if options.verbose {
+                if verbose {
                     println!( "({}): {}", get_source_file( &entity ).unwrap_or_else(|| TypeInfoSource{ file_path: String::from("NoFile"), is_system_file: false }).file_path, error ); 
                 }
             },
@@ -1401,33 +1391,10 @@ fn parse_translation_unit( tu: &TranslationUnit, options: &Options ) -> ParseCon
 }
 
 fn main() {
+    let options = app_params::parse_options();
+
     let start = Instant::now();
-
-    let mut options = Options::default();
-
-    {
-        let mut ap = ArgumentParser::new();
-        ap.set_description("Generate metadata files for my C++ GameEngine.");
-        ap.refer(&mut options.verbose)
-            .add_option(&["-v", "--verbose"], StoreTrue, "Be verbose");
-        ap.refer(&mut options.no_output)
-            .add_option(&["--no-output"], StoreTrue, "Don't output type_db.");
-        ap.refer(&mut options.no_report)
-            .add_option(&["--no-report"], StoreTrue, "Don't output type report.");
-        ap.refer(&mut options.output_directory)
-            .add_option(&["-o", "--output"], StoreOption, "Output file");
-        ap.refer(&mut options.additional_include_directories)
-            .add_option(&["-i", "--include"], Collect, "Additional include directories.");
-        ap.refer(&mut options.input_directories)
-            .add_argument("DIRECTORIES", List, "Input directories")
-            .required();
-
-        ap.parse_args_or_exit();
-    }
-
-    let options = options;
-
-    let entries = options.input_directories.iter()
+    let entries = options.get_input_directories().iter()
             .filter_map(|x| read_dir(x).ok())
             .flat_map(|x| x)
             .filter_map( |x| x.ok() );
@@ -1445,13 +1412,13 @@ fn main() {
         Ok(_) => {},
     };
 
-    let arguments = get_clang_arguments( &options.input_directories, &options.additional_include_directories );
+    let arguments = get_clang_arguments( options.get_input_directories(), options.get_additional_include_directories() );
 
     let clang = Clang::new().unwrap();
     let index = Index::new(&clang, false, true);
 
     let parse_context = match index.parser( &"main.h" ).arguments( &arguments ).parse() {
-        Ok( tu )   => parse_translation_unit( &tu, &options ),
+        Ok( tu )   => parse_translation_unit( &tu, options.is_verbose() ),
         Err( err ) => {
             println!( "ERROR: {}", err );
             ParseContext::default()
@@ -1490,7 +1457,7 @@ fn main() {
     }
     let template_instances = template_instances;
 
-    if !options.no_report {
+    if !options.is_no_report() {
         for (k, v) in &template_instances {
             println!( "{} instances: ", k );
             for inst in v.iter() {
@@ -1504,13 +1471,13 @@ fn main() {
         show_report_types( &parse_context.store.data );
     }
 
-    if !options.no_output {
-        match write_header( &parse_context.store, &options ) {
+    if !options.is_no_output() {
+        match write_header( &parse_context.store, options.get_output_directory() ) {
             Ok(_) => {},
             Err( err ) => { println!( "{}", err ); },
         }
 
-        match write_implementation( &parse_context.store, &template_instances, &options ) {
+        match write_implementation( &parse_context.store, &template_instances, options.get_output_directory() ) {
             Ok(_) => {},
             Err( err ) => { println!( "{}", err ); },
         }
