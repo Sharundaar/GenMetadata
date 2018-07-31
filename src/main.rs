@@ -24,13 +24,7 @@ struct TypeInfoSource {
 struct TypeInfo {
     name: String,
     source_file: Option<TypeInfoSource>,
-    _struct:     Option<TypeInfoStruct>,
-    _field:      Option<TypeInfoField>,
-    _scalar:     Option<TypeInfoScalar>,
-    _enum:       Option<TypeInfoEnum>,
-    _func:       Option<TypeInfoFunc>,
-    _template:   Option<TypeInfoTemplate>,
-    _typedef:    Option<TypeInfoTypedef>,
+    _type: TypeInfoType,
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -254,28 +248,23 @@ impl ExportContext {
     }
 }
 
-enum TypeInfoType<'a> {
+#[derive(Clone, PartialEq, Eq )]
+enum TypeInfoType {
     None,
-    Struct( &'a TypeInfoStruct ),
-    Field( &'a TypeInfoField ),
-    Scalar( &'a TypeInfoScalar ),
-    Enum( &'a TypeInfoEnum ),
-    Func( &'a TypeInfoFunc ),
-    Template( &'a TypeInfoTemplate ),
-    Typedef( &'a TypeInfoTypedef ),
+    Struct( TypeInfoStruct ),
+    Field( TypeInfoField ),
+    Scalar( TypeInfoScalar ),
+    Enum( TypeInfoEnum ),
+    Func( TypeInfoFunc ),
+    Template( TypeInfoTemplate ),
+    Typedef( TypeInfoTypedef ),
 }
 
-fn get_type_info_type<'a>( type_info: &'a TypeInfo ) -> TypeInfoType<'a> {
-    use TypeInfoType::*;
-    if      let Some( ref sub_type ) = type_info._struct { Struct( sub_type ) }
-    else if let Some( ref sub_type ) = type_info._enum { Enum( sub_type ) }
-    else if let Some( ref sub_type ) = type_info._scalar { Scalar( sub_type ) }
-    else if let Some( ref sub_type ) = type_info._template { Template( sub_type ) }
-    else if let Some( ref sub_type ) = type_info._field { Field( sub_type ) }
-    else if let Some( ref sub_type ) = type_info._func { Func( sub_type ) }
-    else if let Some( ref sub_type ) = type_info._typedef { Typedef( sub_type ) }
-    else { None }
+impl Default for TypeInfoType {
+    fn default() -> TypeInfoType { TypeInfoType::None }
 }
+
+
 
 impl GMError {
     #[allow(dead_code)]
@@ -341,38 +330,126 @@ impl TypeInfo {
     }
 
     fn make_scalar( mut self, scalar_type: ScalarInfo ) -> TypeInfo {
-        self._scalar = Some( TypeInfoScalar { scalar_type: scalar_type } );
+        self._type = TypeInfoType::Scalar( TypeInfoScalar { scalar_type: scalar_type } );
         self
     }
 
     fn make_field( mut self, field_name: &str ) -> TypeInfo {
-        self._field = Some( TypeInfoField{ field_name: String::from( field_name ), ..Default::default() } );
+        self._type = TypeInfoType::Field( TypeInfoField{ field_name: String::from( field_name ), ..Default::default() } );
         self
     }
 
     fn make_template( mut self ) -> TypeInfo {
-        self._template = Some( TypeInfoTemplate::default() );
+        self._type = TypeInfoType::Template( TypeInfoTemplate::default() );
         self
     }
 
     fn make_struct( mut self, parent: &Option<&str>, kind: TypeInfoStructKind ) -> TypeInfo {
-        self._struct = Some( TypeInfoStruct{ parent: parent.map(|x| x.to_string()), kind: kind, ..Default::default() });
+        self._type = TypeInfoType::Struct( TypeInfoStruct{ parent: parent.map(|x| x.to_string()), kind: kind, ..Default::default() });
         self
     }
 
     fn make_enum( mut self, underlying_type: &str ) -> TypeInfo {
-        self._enum = Some( TypeInfoEnum{ underlying_type: String::from( underlying_type ), ..Default::default() } );
+        self._type = TypeInfoType::Enum( TypeInfoEnum{ underlying_type: String::from( underlying_type ), ..Default::default() } );
         self
     }
 
     fn make_func( mut self, return_type: Option<Box<TypeInfo>> ) -> TypeInfo {
-        self._func = Some( TypeInfoFunc{ return_type: return_type, ..Default::default() } );
+        self._type = TypeInfoType::Func( TypeInfoFunc{ return_type: return_type, ..Default::default() } );
         self
     }
 
     fn make_typedef( mut self, source_type: String ) -> TypeInfo {
-        self._typedef = Some( TypeInfoTypedef{ source_type: source_type, ..Default::default() } );
+        self._type = TypeInfoType::Typedef( TypeInfoTypedef{ source_type: source_type, ..Default::default() } );
         self
+    }
+
+    fn is_struct( &self ) -> bool {
+        if let TypeInfoType::Struct(_) = self._type { true } else { false }
+    }
+
+    fn is_field( &self ) -> bool {
+        if let TypeInfoType::Field(_) = self._type { true } else { false }
+    }
+
+    fn is_scalar( &self ) -> bool {
+        if let TypeInfoType::Scalar(_) = self._type { true } else { false }
+    }
+
+    fn is_enum( &self ) -> bool {
+        if let TypeInfoType::Enum(_) = self._type { true } else { false }
+    }
+
+    fn is_func( &self ) -> bool {
+        if let TypeInfoType::Func(_) = self._type { true } else { false }
+    }
+
+    fn is_template( &self ) -> bool {
+        if let TypeInfoType::Template(_) = self._type { true } else { false }
+    }
+
+    fn is_typedef( &self ) -> bool {
+        if let TypeInfoType::Typedef(_) = self._type { true } else { false }
+    }
+
+    fn as_struct( &self ) -> Option< &TypeInfoStruct > {
+        if let TypeInfoType::Struct( data ) = self._type { Some( &data ) } else { None }
+    }
+
+    fn as_field( &self ) -> Option< &TypeInfoField > {
+        if let TypeInfoType::Field( data ) = self._type { Some( &data ) } else { None }
+    }
+
+    fn as_scalar( &self ) -> Option< &TypeInfoScalar > {
+        if let TypeInfoType::Scalar( data ) = self._type { Some( &data ) } else { None }
+    }
+
+    fn as_enum( &self ) -> Option< &TypeInfoEnum > {
+        if let TypeInfoType::Enum( data ) = self._type { Some( &data ) } else { None }
+    }
+
+    fn as_func( &self ) -> Option< &TypeInfoFunc > {
+        if let TypeInfoType::Func( data ) = self._type { Some( &data ) } else { None }
+    }
+
+    fn as_template( &self ) -> Option< &TypeInfoTemplate > {
+        if let TypeInfoType::Template( data ) = self._type { Some( &data ) } else { None }
+    }
+
+    fn as_typedef( &self ) -> Option< &TypeInfoTypedef > {
+        if let TypeInfoType::Typedef( data ) = self._type { Some( &data ) } else { None }
+    }
+
+    fn as_struct_mut( &mut self ) -> Option< &mut TypeInfoStruct > {
+        if let TypeInfoType::Struct( data ) = self._type { Some( &mut data ) } else { None }
+    }
+
+    fn as_field_mut( &mut self ) -> Option< &mut TypeInfoField > {
+        if let TypeInfoType::Field( data ) = self._type { Some( &mut data ) } else { None }
+    }
+
+    fn as_scalar_mut( &mut self ) -> Option< &mut TypeInfoScalar > {
+        if let TypeInfoType::Scalar( data ) = self._type { Some( &mut data ) } else { None }
+    }
+
+    fn as_enum_mut( &mut self ) -> Option< &mut TypeInfoEnum > {
+        if let TypeInfoType::Enum( data ) = self._type { Some( &mut data ) } else { None }
+    }
+
+    fn as_func_mut( &mut self ) -> Option< &mut TypeInfoFunc > {
+        if let TypeInfoType::Func( data ) = self._type { Some( &mut data ) } else { None }
+    }
+
+    fn as_template_mut( &mut self ) -> Option< &mut TypeInfoTemplate > {
+        if let TypeInfoType::Template( data ) = self._type { Some( &mut data ) } else { None }
+    }
+
+    fn as_typedef_mut( &mut self ) -> Option< &mut TypeInfoTypedef > {
+        if let TypeInfoType::Typedef( data ) = self._type { Some( &mut data ) } else { None }
+    }
+
+    fn get_type( &self ) -> &TypeInfoType {
+        &self._type
     }
 }
 
@@ -383,7 +460,7 @@ fn has_object_parent( struct_info: &TypeInfoStruct, type_info_store: &TypeInfoSt
         }
 
         if let Some( ref parent_type ) = type_info_store.get( parent ) {
-            if let Some( ref parent_struct ) = parent_type._struct {
+            if let Some( &parent_struct ) = parent_type.as_struct() {
                 return has_object_parent( &parent_struct, type_info_store );
             }
         }
@@ -432,7 +509,7 @@ fn from_entity_structdecl( context: &mut ParseContext, entity: &Entity ) -> Resu
 
             {
                 use EntityKind::*;
-                let mut type_info_struct = type_info._struct.as_mut().unwrap();
+                let mut type_info_struct = type_info.as_struct_mut().unwrap();
                 for child in entity.get_children().into_iter() {
                     match child.get_kind() {
                         BaseSpecifier => {
@@ -512,7 +589,7 @@ fn make_field_from_type<'a>( field_info: &mut TypeInfoField, type_def: &'a Type 
             let mut tas: Vec<TypeInfo> = vec!();
             for arg in template_args.iter().filter_map( |a| *a ) {
                 let mut thing = TypeInfo::new( "" ).make_field( "" );
-                let true_type = make_field_from_type( thing._field.as_mut().unwrap(), &arg )?;
+                let true_type = make_field_from_type( thing.as_field_mut().unwrap(), &arg )?;
                 thing.name = sanitize_type_name( &true_type );
                 tas.push( thing );
             }
@@ -529,7 +606,7 @@ fn from_entity_fielddecl( context: &mut ParseContext, entity: &Entity, parent_ty
             // type name filled in later
             let mut type_info = TypeInfo::new( "" ).make_field( &name );
             {
-                let mut field_info = type_info._field.as_mut().unwrap();
+                let mut field_info = type_info.as_field_mut().unwrap();
                 field_info.parent_name = if let Some(parent_type) = parent_type { 
                     sanitize_type_name( parent_type ) 
                 } else { 
@@ -572,7 +649,7 @@ fn from_entity_enumdecl( context: &mut ParseContext, entity: &Entity ) -> Result
             type_info.source_file = get_source_file( entity );
 
             {
-                let mut type_enum = type_info._enum.as_mut().unwrap();
+                let mut type_enum = type_info.as_enum_mut().unwrap();
                 type_enum.is_scoped = entity.is_scoped();
                 for child in entity.get_children() {
                     type_enum.enum_values.push( EnumValue(child.get_name().unwrap().clone(), child.get_enum_constant_value().unwrap()) );
@@ -610,14 +687,14 @@ fn from_entity_funcdecl( context: &mut ParseContext, entity: &Entity ) -> Result
             let mut return_type: Option<Box<TypeInfo>> = None;
             if return_type_type.get_display_name() != "void" {
                 let mut return_type_ti = TypeInfo::new( "" ).make_field( "" );
-                let return_type_type = make_field_from_type( return_type_ti._field.as_mut().unwrap(), &return_type_type )?;
+                let return_type_type = make_field_from_type( return_type_ti.as_field_mut().unwrap(), &return_type_type )?;
                 return_type_ti.name = sanitize_type_name( &return_type_type );
                 return_type = Some( Box::new( return_type_ti ) );
             }
             let mut type_info = TypeInfo::new( name ).make_func( return_type );
             type_info.source_file = get_source_file( entity );
             {
-                let mut type_func = type_info._func.as_mut().unwrap();
+                let mut type_func = type_info.as_func_mut().unwrap();
                 for child in entity.get_children().iter().filter( |x| x.get_kind() == EntityKind::ParmDecl ) {
                     match from_entity_fielddecl( context, child, None ) {
                         Ok( param_type ) => type_func.parameters.push( param_type ),
@@ -674,7 +751,7 @@ fn from_entity_typedefdecl( context: &mut ParseContext, entity: &Entity ) -> Res
 
     let mut type_info_field = TypeInfo::new( "" ).make_field( "" );
     {
-        let mut field_info = type_info_field._field.as_mut().unwrap();
+        let mut field_info = type_info_field.as_field_mut().unwrap();
         let type_def = make_field_from_type( &mut field_info, &underlying_type )?;
         type_info_field.name = sanitize_type_name( &underlying_type );
         if !context.store.has( &type_info_field.name ) {
@@ -691,11 +768,11 @@ fn from_entity_typedefdecl( context: &mut ParseContext, entity: &Entity ) -> Res
             }
         }
     }
-    if type_info_field._field != Some( TypeInfoField::default() ) {
-        type_info._typedef.as_mut().unwrap().field = Some( Box::new( type_info_field ) );
+    if type_info_field.as_field() != Some( &TypeInfoField::default() ) {
+        type_info.as_typedef_mut().unwrap().field = Some( Box::new( type_info_field ) );
     }
 
-    if type_info.name == type_info._typedef.as_ref().unwrap().source_type {
+    if type_info.name == type_info.as_typedef().unwrap().source_type {
         gm_info!( "Found typedef to C struct (eg. typedef struct MyStruct MyStruct)." )
     } else {
         context.store_type_info(type_info);
@@ -765,8 +842,8 @@ fn write_header( type_info_store: &TypeInfoStore, output_dir: &str ) -> Result<b
     writeln!( file, "{};", get_register_types_header() )?;
     writeln!( file )?;
 
-    for type_info in type_info_store.data.iter().filter( |t| t._enum.is_some() ) {
-        let enum_type = type_info._enum.as_ref().unwrap();
+    for type_info in type_info_store.data.iter().filter( |t| t.is_enum() ) {
+        let enum_type = type_info.as_enum().unwrap();
         if enum_type.is_scoped {
             writeln!( file, "enum class {} : {};", type_info.name, enum_type.underlying_type )?;
         }
@@ -774,8 +851,8 @@ fn write_header( type_info_store: &TypeInfoStore, output_dir: &str ) -> Result<b
 
     writeln!( file )?;
 
-    for type_info in type_info_store.data.iter().filter( |t| t._struct.is_some() ) {
-        match type_info._struct.as_ref().unwrap().kind {
+    for type_info in type_info_store.data.iter().filter( |t| t.is_struct() ) {
+        match type_info.as_struct().unwrap().kind {
             TypeInfoStructKind::Struct => writeln!( file, "struct {};", type_info.name )?,
             TypeInfoStructKind::Class => writeln!( file, "class {};", type_info.name )?,
         }
@@ -787,15 +864,14 @@ fn write_header( type_info_store: &TypeInfoStore, output_dir: &str ) -> Result<b
     writeln!( file, "{{")?;
     for type_info in type_info_store.data.iter() {
         use TypeInfoType::*;
-        match get_type_info_type( &type_info ) {
-            Scalar(_)  => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
-            Typedef(_) => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
-            Struct(_)  => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
-            Enum(_)    => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
-            Func(_)    => {}
-            Field(_)   => {}
-            Template(_) => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
-            None => {}
+        match type_info.get_type() {
+            &Typedef(_) => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
+            &Struct(_)  => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
+            &Enum(_)    => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
+            &Func(_)    => {}
+            &Field(_)   => {}
+            &Template(_) => { writeln!( file, "    {},", get_type_id( &type_info ) )?; }
+            &None => {}
         };
     }
     writeln!( file, "    COUNT," )?;
@@ -807,8 +883,8 @@ fn write_header( type_info_store: &TypeInfoStore, output_dir: &str ) -> Result<b
     writeln!( file, "{{" )?;
     writeln!( file, "    Object," )?;
     for type_info in type_info_store.data.iter()
-                    .filter( |t| t._struct.is_some() )
-                    .filter( |t| has_object_parent( t._struct.as_ref().unwrap(), type_info_store ) ) {
+                    .filter( |t| t.is_struct() )
+                    .filter( |t| has_object_parent( t.as_struct().unwrap(), type_info_store ) ) {
         writeln!( file, "    {},", type_info.name )?;
     }
     writeln!( file, "}};" )?;
@@ -817,7 +893,7 @@ fn write_header( type_info_store: &TypeInfoStore, output_dir: &str ) -> Result<b
 
     for type_info in type_info_store.data.iter() {
         use TypeInfoType::*;
-        match get_type_info_type( &type_info ) {
+        match type_info.get_type() {
             Scalar(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return static_cast<TypeId>(LocalTypeId::{}); }}", type_info.name, get_type_id(&type_info) )?; }
             Typedef(_) => { continue; }
             Struct(_)  => { writeln!( file, "template<> constexpr TypeId type_id<{}>() {{ return static_cast<TypeId>(LocalTypeId::{}); }}", type_info.name, get_type_id(&type_info) )?; }
@@ -857,7 +933,7 @@ fn build_modifier_string( field: &TypeInfoField ) -> String {
 }
 
 fn write_struct_implementation( type_info_store: &TypeInfoStore, file: &mut File, type_info: &TypeInfo ) -> Result<bool, GMError> {
-    let struct_type = type_info._struct.as_ref().unwrap();
+    let struct_type = type_info.as_struct().unwrap();
     // Write constructors if needed
     if has_object_parent( struct_type, type_info_store ) {
         let parent = struct_type.parent.as_ref().unwrap();
@@ -910,10 +986,10 @@ fn get_type_id( type_info: &TypeInfo ) -> String {
 
 fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo, type_info_store: &TypeInfoStore ) -> std::io::Result<()> {
     let type_name = &type_info.name;
-    let type_var  = get_field_var( &type_name, &type_info._field );
+    let type_var  = get_field_var( &type_name, &type_info.as_field() );
     
     use TypeInfoType::*;
-    match get_type_info_type( &type_info ) {
+    match type_info.get_type() {
         Scalar(_)           => gm_writeln!( context, "auto& {type} = alloc_type_short( TypeInfoType::Scalar );",   type=type_var ),
         Typedef( typedef )  => {
             if typedef.field.is_some() || !type_info_store.has( &typedef.source_type ) {
@@ -934,13 +1010,13 @@ fn write_type_instantiation( context: &mut ExportContext, type_info: &TypeInfo, 
 fn write_type_implementation( context: &mut ExportContext, type_info_store: &TypeInfoStore, template_instances: &HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo, indent_count: usize ) -> Result<bool, GMError> {
     let type_name = &type_info.name;
     let type_var  = match context.type_var_override.last() {
-        Option::None => get_field_var( &type_name, &type_info._field ),
+        Option::None => get_field_var( &type_name, &type_info.as_field() ),
         Some( otv ) => otv.clone(),
     };
     let indent    = " ".repeat( indent_count * 4 );
 
     use TypeInfoType::*;
-    match get_type_info_type( &type_info ) {
+    match type_info.get_type() {
 
 // Impl Scalar
         Scalar( scalar_type ) => {
@@ -1226,7 +1302,7 @@ fn write_implementation( type_info_store: &TypeInfoStore, template_instances: &H
     gm_end_scope!( context )?;
     gm_writeln!( context )?;
 
-    for type_info in type_info_store.data.iter().filter( |t| t._struct.is_some() && has_object_parent( t._struct.as_ref().unwrap(), type_info_store ) ) {
+    for type_info in type_info_store.data.iter().filter( |t| t.is_struct() && has_object_parent( t.as_struct().unwrap(), type_info_store ) ) {
         write_struct_implementation( type_info_store, &mut context.file, type_info )?;
     }
 
@@ -1288,7 +1364,7 @@ fn get_clang_arguments( input_directories: &Vec<String>, additional_include_dire
 fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
     use TypeInfoType::*;
     for type_info in type_info_vec.iter() {
-        match get_type_info_type( type_info ) {
+        match type_info.get_type() {
             Struct( type_struct) => {
                 print!("Type: {}", type_info.name);
 
@@ -1304,10 +1380,10 @@ fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
                     println!("    has_default_constructor: false");
                 }
                 for field in &type_struct.fields {
-                    println!("    {} ({})", field._field.as_ref().unwrap().field_name, field.name);
+                    println!("    {} ({})", field.as_field().unwrap().field_name, field.name);
                 }
                 for function in &type_struct.functions {
-                    let _func_type = function._func.as_ref().unwrap();
+                    let _func_type = function.as_func().unwrap();
                     /* @TODO: Report functions
                     println!("    {} {}({})", func_type.return_type.as_ref().unwrap_or(&"void".to_string()),
                                             function.name, 
@@ -1364,7 +1440,7 @@ fn show_report_types( type_info_vec: &Vec<TypeInfo> ) {
             Typedef( type_typedef ) => {
                 println!("Typedef: {} -> {}", type_typedef.source_type, type_info.name);
             }
-            None => { println!("ERROR: get_type_info_type should not return None...");}
+            None => { println!("ERROR: get_type should not return None...");}
         }
     }
 }
@@ -1426,7 +1502,7 @@ fn main() {
     };
  
     fn explore_fields_rec( template_instances: &mut HashMap<String, Vec<Vec<TypeInfo>>>, type_info: &TypeInfo ) {
-        let field_info = type_info._field.as_ref().unwrap();
+        let field_info = type_info.as_field().unwrap();
         if let Some( ref template_args ) = field_info.templates {
             let template_type = &type_info.name;
             {
@@ -1443,13 +1519,11 @@ fn main() {
     
     let mut template_instances: HashMap<String, Vec<Vec<TypeInfo>>> = HashMap::new();
     for type_info in &parse_context.store.data {
-        if type_info._struct.is_some() {
-            let struct_info = type_info._struct.as_ref().unwrap();
+        if let Some( &struct_info ) = type_info.as_struct() {
             for field in &struct_info.fields {
                 explore_fields_rec( &mut template_instances, &field );
             }
-        } else if type_info._typedef.is_some() {
-            let typedef_info = type_info._typedef.as_ref().unwrap();
+        } else if let Some( &typedef_info ) = type_info.as_typedef() {
             if let Some( ref field ) = typedef_info.field {
                 explore_fields_rec( &mut template_instances, &*field );
             }
